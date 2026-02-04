@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && head -10 {}')",
+      "Bash(grep:*)",
+      "Bash(find /Users/chenjie/.claude/plugins/marketplaces -name \"plugin.json\" -exec sh -c 'echo \"\"=== {} ===\"\" && head -20 {}' ;)",
+      "Bash(find:*)",
+      "Bash(git clone:*)"
+    ]
+  }
+}
