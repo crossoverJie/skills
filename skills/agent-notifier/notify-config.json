@@ -1,0 +1,33 @@
+{
+  "channels": {
+    "sound": {
+      "enabled": true,
+      "file": "/System/Library/Sounds/Glass.aiff"
+    },
+    "macos_notification": {
+      "enabled": true
+    },
+    "telegram": {
+      "enabled": false,
+      "bot_token": "",
+      "chat_id": ""
+    },
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "username": "",
+      "password": "",
+      "from_addr": "",
+      "to_addr": ""
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": ""
+    }
+  }
+}

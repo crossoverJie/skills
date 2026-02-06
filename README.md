@@ -19,6 +19,7 @@ npx skills add crossoverJie/skills@image-uploader
 npx skills add crossoverJie/skills@cover-generator
 npx skills add crossoverJie/skills@auto-blog-cover
 npx skills add crossoverJie/skills@session-export
+npx skills add crossoverJie/skills@agent-notifier
 ```
 
 The CLI automatically detects your agent (Claude Code, Codex, Cursor, etc.) and installs to the correct location.
@@ -66,6 +67,7 @@ Once installed, Claude will automatically discover these skills when you ask for
 - **[Image Uploader](skills/image-uploader/SKILL.md)**: Upload local images to cloud hosting services (currently supports sm.ms).
 - **[Cover Generator](skills/cover-generator/SKILL.md)**: Programmatically generate elegant, gradient-based cover images for blogs and articles.
 - **[Session Export](skills/session-export/SKILL.md)**: Export AI chat session conversations to readable Markdown files (supports Claude Code logs and cross-agent fallback).
+- **[Agent Notifier](skills/agent-notifier/SKILL.md)**: Multi-platform, multi-channel notifications for AI code agents (sound, macOS alert, Telegram, Email, Slack, Discord).
 
 ## Usage
 
@@ -86,4 +88,9 @@ Each skill has its own documentation and requirements.
 3.  **Session Export**:
     ```bash
     python3 skills/session-export/session_export.py --output-dir ./exports --name "my-session"
+    ```
+
+4.  **Agent Notifier**:
+    ```bash
+    python3 skills/agent-notifier/setup.py
     ```
