@@ -1,6 +1,10 @@
 ---
 name: cover-generator
 description: Generates simple gradient-based cover images for blogs or articles with a title and subtitle. Can optionally upload the generated image immediately.
+license: Apache-2.0
+metadata:
+  author: crossoverJie
+  version: "1.0"
 ---
 
 # Cover Generator Skill

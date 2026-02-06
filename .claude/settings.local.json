@@ -11,7 +11,10 @@
       "Bash(ls:*)",
       "Bash(python3:*)",
       "Bash(echo:*)",
-      "Bash(afplay:*)"
+      "Bash(afplay:*)",
+      "WebSearch",
+      "Bash(npx skills-ref validate:*)",
+      "Bash(npx skills-ref:*)"
     ]
   }
 }

@@ -4,7 +4,28 @@ A collection of useful skills for AI agents (like GitHub Copilot CLI), following
 
 ## Installation
 
-### Claude Code
+### Skills CLI (Recommended)
+
+Install all skills at once using the [Skills CLI](https://skills.sh/):
+
+```bash
+npx skills add crossoverJie/skills
+```
+
+Or install a specific skill:
+
+```bash
+npx skills add crossoverJie/skills@image-uploader
+npx skills add crossoverJie/skills@cover-generator
+npx skills add crossoverJie/skills@auto-blog-cover
+npx skills add crossoverJie/skills@session-export
+```
+
+The CLI automatically detects your agent (Claude Code, Codex, Cursor, etc.) and installs to the correct location.
+
+### Manual Installation
+
+#### Claude Code
 
 To make these skills available to Claude Code agents, copy the `skills` directory to your global configuration folder:
 
@@ -18,7 +39,7 @@ cp -r skills/* ~/.claude/skills/
 
 Once installed, Claude will automatically discover these skills when you ask for relevant tasks (e.g., "Upload this image").
 
-### GitHub Copilot CLI / Terminal
+#### GitHub Copilot CLI / Terminal
 
 1.  **Clone the repository**:
     ```bash

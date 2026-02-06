@@ -1,6 +1,10 @@
 ---
 name: session-export
 description: Exports the current AI chat session to a Markdown file. Use this skill when the user wants to export, save, sync, or backup their conversation/chat/session content. Supports both raw export and optional summarization.
+license: Apache-2.0
+metadata:
+  author: crossoverJie
+  version: "1.0"
 ---
 
 # Session Export Skill

@@ -1,6 +1,10 @@
 ---
 name: image-uploader
 description: Uploads images to image hosting services (currently supports sm.ms). Use this skill when the user wants to upload a local image file to the web and get a public URL.
+license: Apache-2.0
+metadata:
+  author: crossoverJie
+  version: "1.0"
 ---
 
 # Image Uploader Skill

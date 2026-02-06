@@ -1,6 +1,10 @@
 ---
 name: auto-blog-cover
 description: Automates the process of creating and setting blog post covers. Reads a markdown file, generates a cover image based on title/subtitle, uploads it, and updates the file's frontmatter (e.g., banner_img).
+license: Apache-2.0
+metadata:
+  author: crossoverJie
+  version: "1.0"
 ---
 
 # Auto Blog Cover Skill
