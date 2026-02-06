@@ -5,7 +5,13 @@
       "Bash(grep:*)",
       "Bash(find /Users/chenjie/.claude/plugins/marketplaces -name \"plugin.json\" -exec sh -c 'echo \"\"=== {} ===\"\" && head -20 {}' ;)",
       "Bash(find:*)",
-      "Bash(git clone:*)"
+      "Bash(git clone:*)",
+      "Bash(npx skills:*)",
+      "WebFetch(domain:skills.sh)",
+      "Bash(ls:*)",
+      "Bash(python3:*)",
+      "Bash(echo:*)",
+      "Bash(afplay:*)"
     ]
   }
 }

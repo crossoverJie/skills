@@ -44,6 +44,7 @@ Once installed, Claude will automatically discover these skills when you ask for
 
 - **[Image Uploader](skills/image-uploader/SKILL.md)**: Upload local images to cloud hosting services (currently supports sm.ms).
 - **[Cover Generator](skills/cover-generator/SKILL.md)**: Programmatically generate elegant, gradient-based cover images for blogs and articles.
+- **[Session Export](skills/session-export/SKILL.md)**: Export AI chat session conversations to readable Markdown files (supports Claude Code logs and cross-agent fallback).
 
 ## Usage
 
@@ -59,4 +60,9 @@ Each skill has its own documentation and requirements.
 2.  **Cover Generator**:
     ```bash
     python3 skills/cover-generator/cover_generator.py "My Title" --upload
+    ```
+
+3.  **Session Export**:
+    ```bash
+    python3 skills/session-export/session_export.py --output-dir ./exports --name "my-session"
     ```
