@@ -80,13 +80,19 @@ Add to `~/.claude/settings.json`:
 
 ### GitHub Copilot CLI
 
-Add to your `hooks.json`:
+The setup script automatically writes hooks to `.github/hooks/agent-notifier.json` in your project. To configure manually, create `.github/hooks/agent-notifier.json`:
 
 ```json
 {
-  "sessionEnd": [
-    {"command": "python3 /path/to/skills/agent-notifier/notify.py"}
-  ]
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [
+      {"type": "command", "bash": "python3 /path/to/skills/agent-notifier/notify.py"}
+    ],
+    "postToolUse": [
+      {"type": "command", "bash": "python3 /path/to/skills/agent-notifier/notify.py"}
+    ]
+  }
 }
 ```
 
@@ -205,6 +211,12 @@ The config file is searched in order:
 ```bash
 # Simulate a Claude Code idle_prompt event
 echo '{"notification_type":"idle_prompt","message":"Waiting for your input"}' | python3 skills/agent-notifier/notify.py
+
+# Simulate a Copilot CLI sessionEnd event
+echo '{"timestamp":1704618000000,"cwd":"/path","reason":"complete"}' | python3 skills/agent-notifier/notify.py
+
+# Simulate a Copilot CLI postToolUse event
+echo '{"timestamp":1704614700000,"cwd":"/path","toolName":"bash","toolArgs":"ls","toolResult":{"resultType":"success","textResultForLlm":"done"}}' | python3 skills/agent-notifier/notify.py
 
 # Simulate a Cursor task completion
 echo '{"hook_event_name":"stop","status":"completed","agent":"cursor"}' | python3 skills/agent-notifier/notify.py

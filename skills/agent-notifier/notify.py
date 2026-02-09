@@ -86,7 +86,40 @@ def parse_input():
             event_msg = msg or ntype
         return {"platform": "claude_code", "event": ntype, "message": event_msg}
 
-    # --- Copilot CLI / Cursor (hook_event_name) ---
+    # --- Copilot CLI (field-signature detection) ---
+    # sessionEnd: payload contains "reason" (e.g. "complete", "error", "cancelled")
+    if "reason" in data and "toolName" not in data:
+        reason = data["reason"]
+        if reason == "complete":
+            event_msg = "Task completed"
+        elif reason == "error":
+            event_msg = "Session ended with error"
+        elif reason == "cancelled":
+            event_msg = "Session cancelled"
+        else:
+            event_msg = f"Session ended ({reason})"
+        return {"platform": "copilot_cli", "event": "sessionEnd", "message": event_msg}
+
+    # postToolUse: payload contains "toolName" + "toolResult"
+    if "toolName" in data and "toolResult" in data:
+        tool = data["toolName"]
+        result = data["toolResult"]
+        result_type = result.get("resultType", "") if isinstance(result, dict) else ""
+        if result_type == "success":
+            event_msg = f"Tool '{tool}' completed successfully"
+        elif result_type == "error":
+            event_msg = f"Tool '{tool}' failed"
+        else:
+            event_msg = f"Tool '{tool}' finished"
+        return {"platform": "copilot_cli", "event": "postToolUse", "message": event_msg}
+
+    # sessionStart: payload contains "source" but no "toolName"
+    if "source" in data and "toolName" not in data and "notification_type" not in data:
+        source = data["source"]
+        event_msg = f"Session started ({source})"
+        return {"platform": "copilot_cli", "event": "sessionStart", "message": event_msg}
+
+    # --- Cursor / other platforms (hook_event_name) ---
     hook_event = data.get("hook_event_name", "")
     if hook_event:
         status = data.get("status", "")
@@ -145,7 +178,7 @@ def load_config():
 
 def _format_title(event_info):
     label = PLATFORM_LABELS.get(event_info["platform"], event_info["platform"])
-    return f"{label}"
+    return f"Agent Notifier — {label}"
 
 
 def _format_body(event_info):

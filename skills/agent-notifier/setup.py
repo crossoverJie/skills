@@ -65,7 +65,7 @@ def detect_platforms():
     )
 
     # Copilot CLI
-    found["copilot_cli"] = _command_exists("gh") and shutil.which("gh") is not None
+    found["copilot_cli"] = _command_exists("copilot")
 
     # Cursor
     found["cursor"] = os.path.isdir(os.path.expanduser("~/.cursor"))
@@ -185,11 +185,29 @@ def install_claude_code_hooks():
 
 
 def install_copilot_cli_hooks():
-    """Print instructions for Copilot CLI hook setup."""
-    print("   GitHub Copilot CLI hook configuration:")
-    print(f"   Add to your hooks.json:")
-    print(f'   {{"sessionEnd": [{{"command": "python3 {NOTIFY_SCRIPT}"}}]}}')
-    print("   See: https://docs.github.com/en/copilot/using-github-copilot/using-copilot-cli")
+    """Install Copilot CLI hooks to .github/hooks/agent-notifier.json."""
+    project_dir = _input("   Project directory for Copilot CLI hooks", os.getcwd())
+    hooks_dir = os.path.join(project_dir, ".github", "hooks")
+    hooks_file = os.path.join(hooks_dir, "agent-notifier.json")
+
+    notify_cmd = f"python3 {NOTIFY_SCRIPT}"
+    hook_config = {
+        "version": 1,
+        "hooks": {
+            "sessionEnd": [
+                {"type": "command", "bash": notify_cmd}
+            ],
+            "postToolUse": [
+                {"type": "command", "bash": notify_cmd}
+            ],
+        },
+    }
+
+    os.makedirs(hooks_dir, exist_ok=True)
+    with open(hooks_file, "w", encoding="utf-8") as f:
+        json.dump(hook_config, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print(f"   Wrote Copilot CLI hooks to {hooks_file}")
 
 
 def install_cursor_hooks():
