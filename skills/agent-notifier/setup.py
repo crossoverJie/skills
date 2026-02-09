@@ -203,6 +203,16 @@ def install_copilot_cli_hooks():
         },
     }
 
+    # Merge into existing hooks.json if present
+    if os.path.isfile(hooks_file):
+        with open(hooks_file, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        existing.setdefault("version", 1)
+        existing_hooks = existing.setdefault("hooks", {})
+        for event, entries in hook_config["hooks"].items():
+            existing_hooks.setdefault(event, []).extend(entries)
+        hook_config = existing
+
     os.makedirs(hooks_dir, exist_ok=True)
     with open(hooks_file, "w", encoding="utf-8") as f:
         json.dump(hook_config, f, indent=2, ensure_ascii=False)

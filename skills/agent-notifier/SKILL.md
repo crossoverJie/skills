@@ -41,6 +41,27 @@ LLM-based "play a sound when done" prompts are unreliable — context compressio
 python3 skills/agent-notifier/setup.py
 ```
 
+### Copilot CLI Users
+
+Copilot CLI loads hooks from the project's `.github/hooks/` directory (no global hook support). Create the hook file in **each project** where you want notifications:
+
+```bash
+mkdir -p .github/hooks
+cat > .github/hooks/agent-notifier.json << 'EOF'
+{
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+    ],
+    "postToolUse": [
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+    ]
+  }
+}
+EOF
+```
+
 ## Manual Usage
 
 ```bash

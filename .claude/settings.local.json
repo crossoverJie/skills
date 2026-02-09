@@ -14,7 +14,26 @@
       "Bash(afplay:*)",
       "WebSearch",
       "Bash(npx skills-ref validate:*)",
-      "Bash(npx skills-ref:*)"
+      "Bash(npx skills-ref:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m unittest:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:github.blog)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(gh extension:*)",
+      "Bash(copilot --help:*)",
+      "Bash(copilot config:*)",
+      "Bash(copilot help:*)",
+      "WebFetch(domain:aider.chat)",
+      "WebFetch(domain:cursor.com)",
+      "WebFetch(domain:blog.gitbutler.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:geminicli.com)"
     ]
   }
 }

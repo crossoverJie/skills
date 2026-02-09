@@ -69,7 +69,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /path/to/skills/agent-notifier/notify.py"
+            "command": "python3 $HOME/.claude/skills/agent-notifier/notify.py"
           }
         ]
       }
@@ -80,30 +80,37 @@ Add to `~/.claude/settings.json`:
 
 ### GitHub Copilot CLI
 
-The setup script automatically writes hooks to `.github/hooks/agent-notifier.json` in your project. To configure manually, create `.github/hooks/agent-notifier.json`:
+> **Note:** Copilot CLI loads hooks from the project's `.github/hooks/` directory. You need to in **each project** that you want notifications for create this file. Claude Code hooks are global (`~/.claude/settings.json`), but Copilot CLI hooks are per-project.
 
-```json
+Create `.github/hooks/agent-notifier.json` in your project root:
+
+```bash
+mkdir -p .github/hooks
+cat > .github/hooks/agent-notifier.json << 'EOF'
 {
   "version": 1,
   "hooks": {
     "sessionEnd": [
-      {"type": "command", "bash": "python3 /path/to/skills/agent-notifier/notify.py"}
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
     ],
     "postToolUse": [
-      {"type": "command", "bash": "python3 /path/to/skills/agent-notifier/notify.py"}
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
     ]
   }
 }
+EOF
 ```
+
+Or run `python3 ~/.claude/skills/agent-notifier/setup.py` to install automatically.
 
 ### Cursor
 
-Add to `~/.cursor/hooks.json`:
+Add to `.cursor/hooks.json`:
 
 ```json
 {
   "stop": [
-    {"command": "python3 /path/to/skills/agent-notifier/notify.py"}
+    {"command": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
   ]
 }
 ```
@@ -113,13 +120,13 @@ Add to `~/.cursor/hooks.json`:
 Add to `.aider.conf.yml`:
 
 ```yaml
-notifications-command: python3 /path/to/skills/agent-notifier/notify.py
+notifications-command: python3 $HOME/.claude/skills/agent-notifier/notify.py
 ```
 
 Or pass as a CLI flag:
 
 ```bash
-aider --notifications-command "python3 /path/to/skills/agent-notifier/notify.py"
+aider --notifications-command "python3 $HOME/.claude/skills/agent-notifier/notify.py"
 ```
 
 ## Notification Channels

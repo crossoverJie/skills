@@ -87,17 +87,17 @@ def parse_input():
         return {"platform": "claude_code", "event": ntype, "message": event_msg}
 
     # --- Copilot CLI (field-signature detection) ---
-    # sessionEnd: payload contains "reason" (e.g. "complete", "error", "cancelled")
+    # sessionEnd: payload contains "reason" (complete/error/abort/timeout/user_exit)
     if "reason" in data and "toolName" not in data:
         reason = data["reason"]
-        if reason == "complete":
-            event_msg = "Task completed"
-        elif reason == "error":
-            event_msg = "Session ended with error"
-        elif reason == "cancelled":
-            event_msg = "Session cancelled"
-        else:
-            event_msg = f"Session ended ({reason})"
+        reason_messages = {
+            "complete": "Task completed",
+            "error": "Session ended with error",
+            "abort": "Session aborted",
+            "timeout": "Session timed out",
+            "user_exit": "User exited session",
+        }
+        event_msg = reason_messages.get(reason, f"Session ended ({reason})")
         return {"platform": "copilot_cli", "event": "sessionEnd", "message": event_msg}
 
     # postToolUse: payload contains "toolName" + "toolResult"
@@ -105,12 +105,12 @@ def parse_input():
         tool = data["toolName"]
         result = data["toolResult"]
         result_type = result.get("resultType", "") if isinstance(result, dict) else ""
-        if result_type == "success":
-            event_msg = f"Tool '{tool}' completed successfully"
-        elif result_type == "error":
-            event_msg = f"Tool '{tool}' failed"
-        else:
-            event_msg = f"Tool '{tool}' finished"
+        result_messages = {
+            "success": f"Tool '{tool}' completed successfully",
+            "failure": f"Tool '{tool}' failed",
+            "denied": f"Tool '{tool}' was denied",
+        }
+        event_msg = result_messages.get(result_type, f"Tool '{tool}' finished")
         return {"platform": "copilot_cli", "event": "postToolUse", "message": event_msg}
 
     # sessionStart: payload contains "source" but no "toolName"

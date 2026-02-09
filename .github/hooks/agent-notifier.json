@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"
+      }
+    ]
+  }
+}
