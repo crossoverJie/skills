@@ -6,6 +6,15 @@ import subprocess
 import re
 import frontmatter
 
+def replace_frontmatter_fields(content, fields, url):
+    """Replace frontmatter field values with the given URL."""
+    for field in fields:
+        pattern = fr"^({field}:\s*)(.+)$"
+        replacement = fr"\1{url}"
+        content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+    return content
+
+
 def get_script_path(skill_name, script_name):
     """Locate a sibling skill script."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -121,13 +130,7 @@ def main():
         with open(filepath, 'r') as f:
             content = f.read()
             
-        for field in fields_to_update:
-            # Regex to match "key: value" pattern, supporting http/https values
-            # \1: key part (e.g. "banner_img:")
-            # \2: current value part (rest of line)
-            pattern = fr"^({field}:\s*)(.+)$"
-            replacement = fr"\1{url}"
-            content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+        content = replace_frontmatter_fields(content, fields_to_update, url)
             
         with open(filepath, 'w') as f:
             f.write(content)

@@ -1,0 +1,40 @@
+name: Python Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Discover and run tests
+        run: |
+          failed=0
+          for test_file in $(find . -name 'test_*.py' -type f); do
+            dir=$(dirname "$test_file")
+            base=$(basename "$test_file" .py)
+
+            # Install requirements if present
+            if [ -f "$dir/requirements.txt" ]; then
+              pip install -r "$dir/requirements.txt" -q
+            fi
+
+            echo "::group::Running $test_file"
+            (cd "$dir" && python -m unittest "$base" -v) || failed=1
+            echo "::endgroup::"
+          done
+          exit $failed
