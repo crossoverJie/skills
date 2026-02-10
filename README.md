@@ -2,6 +2,17 @@
 
 A collection of useful skills for AI agents (like GitHub Copilot CLI), following the [Agent Skills specification](https://agentskills.io/specification).
 
+## Skills
+
+| Skill | Description | Screenshot |
+|-------|-------------|------------|
+| [Image Uploader](skills/image-uploader/SKILL.md) | Upload local images to cloud hosting (sm.ms) and get public URLs | |
+| [Cover Generator](skills/cover-generator/SKILL.md) | Generate gradient-based cover images (1200x630) with custom title, subtitle, and theme | |
+| [Auto Blog Cover](skills/auto-blog-cover/SKILL.md) | End-to-end blog cover automation: parse markdown frontmatter, generate cover, upload, and update fields | |
+| [Session Export](skills/session-export/SKILL.md) | Export AI chat sessions to readable Markdown files with optional summarization | |
+| [Agent Notifier](skills/agent-notifier/SKILL.md) | Multi-channel notifications (sound, macOS alert, Telegram, Email, Slack, Discord) when your AI agent needs input or finishes a task |![notifier.png](img/notifier.png) |
+
+
 ## Installation
 
 ### Skills CLI (Recommended)
@@ -59,17 +70,6 @@ Once installed, Claude will automatically discover these skills when you ask for
     ```bash
     python3 ~/skills/skills/auto-blog-cover/auto_blog_cover.py post.md
     ```
-
-## Skills
-
-| Skill | Description | Screenshot |
-|-------|-------------|------------|
-| [Image Uploader](skills/image-uploader/SKILL.md) | Upload local images to cloud hosting (sm.ms) and get public URLs | |
-| [Cover Generator](skills/cover-generator/SKILL.md) | Generate gradient-based cover images (1200x630) with custom title, subtitle, and theme | |
-| [Auto Blog Cover](skills/auto-blog-cover/SKILL.md) | End-to-end blog cover automation: parse markdown frontmatter, generate cover, upload, and update fields | |
-| [Session Export](skills/session-export/SKILL.md) | Export AI chat sessions to readable Markdown files with optional summarization | |
-| [Agent Notifier](skills/agent-notifier/SKILL.md) | Multi-channel notifications (sound, macOS alert, Telegram, Email, Slack, Discord) when your AI agent needs input or finishes a task |![notifier.png](img/notifier.png) |
-
 ## Usage
 
 Each skill has its own documentation and requirements.
