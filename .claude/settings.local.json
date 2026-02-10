@@ -34,7 +34,14 @@
       "WebFetch(domain:blog.gitbutler.com)",
       "WebFetch(domain:developers.openai.com)",
       "WebFetch(domain:geminicli.com)",
-      "Bash(wait:*)"
+      "Bash(wait:*)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:apidocs.imgur.com)",
+      "WebFetch(domain:www.jsdelivr.com)",
+      "Bash(gh auth status:*)",
+      "Bash(gh repo create:*)",
+      "Bash(source ~/.zshrc)",
+      "Bash(curl:*)"
     ]
   }
 }
