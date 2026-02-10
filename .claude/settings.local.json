@@ -33,7 +33,8 @@
       "WebFetch(domain:cursor.com)",
       "WebFetch(domain:blog.gitbutler.com)",
       "WebFetch(domain:developers.openai.com)",
-      "WebFetch(domain:geminicli.com)"
+      "WebFetch(domain:geminicli.com)",
+      "Bash(wait:*)"
     ]
   }
 }

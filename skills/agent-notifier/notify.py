@@ -53,26 +53,32 @@ def _read_stdin():
 def parse_input():
     """Parse hook input from stdin/argv into a unified event dict.
 
-    Returns ``{"platform": str, "event": str, "message": str}``.
+    Returns ``{"platform": str, "event": str, "message": str, "project": str}``.
     """
     raw = _read_stdin().strip()
 
     # Fallback: command-line arguments (used by Aider)
     if not raw and len(sys.argv) > 1:
-        return {
+        result = {
             "platform": "aider",
             "event": "notification",
             "message": " ".join(sys.argv[1:]),
         }
+        result["project"] = _detect_project_context({}, "aider")
+        return result
 
     if not raw:
-        return {"platform": "unknown", "event": "notification", "message": ""}
+        result = {"platform": "unknown", "event": "notification", "message": ""}
+        result["project"] = _detect_project_context({}, "unknown")
+        return result
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         # Non-JSON stdin – treat the text as a plain message
-        return {"platform": "unknown", "event": "notification", "message": raw}
+        result = {"platform": "unknown", "event": "notification", "message": raw}
+        result["project"] = _detect_project_context({}, "unknown")
+        return result
 
     # --- Claude Code ---
     if "notification_type" in data:
@@ -84,7 +90,9 @@ def parse_input():
             event_msg = "🔐 Permission required"
         else:
             event_msg = msg or ntype
-        return {"platform": "claude_code", "event": ntype, "message": event_msg}
+        result = {"platform": "claude_code", "event": ntype, "message": event_msg}
+        result["project"] = _detect_project_context(data, "claude_code")
+        return result
 
     # --- Copilot CLI (field-signature detection) ---
     # sessionEnd: payload contains "reason" (complete/error/abort/timeout/user_exit)
@@ -98,26 +106,32 @@ def parse_input():
             "user_exit": "User exited session",
         }
         event_msg = reason_messages.get(reason, f"Session ended ({reason})")
-        return {"platform": "copilot_cli", "event": "sessionEnd", "message": event_msg}
+        result = {"platform": "copilot_cli", "event": "sessionEnd", "message": event_msg}
+        result["project"] = _detect_project_context(data, "copilot_cli")
+        return result
 
     # postToolUse: payload contains "toolName" + "toolResult"
     if "toolName" in data and "toolResult" in data:
         tool = data["toolName"]
-        result = data["toolResult"]
-        result_type = result.get("resultType", "") if isinstance(result, dict) else ""
+        result_data = data["toolResult"]
+        result_type = result_data.get("resultType", "") if isinstance(result_data, dict) else ""
         result_messages = {
             "success": f"Tool '{tool}' completed successfully",
             "failure": f"Tool '{tool}' failed",
             "denied": f"Tool '{tool}' was denied",
         }
         event_msg = result_messages.get(result_type, f"Tool '{tool}' finished")
-        return {"platform": "copilot_cli", "event": "postToolUse", "message": event_msg}
+        result = {"platform": "copilot_cli", "event": "postToolUse", "message": event_msg}
+        result["project"] = _detect_project_context(data, "copilot_cli")
+        return result
 
     # sessionStart: payload contains "source" but no "toolName"
     if "source" in data and "toolName" not in data and "notification_type" not in data:
         source = data["source"]
         event_msg = f"Session started ({source})"
-        return {"platform": "copilot_cli", "event": "sessionStart", "message": event_msg}
+        result = {"platform": "copilot_cli", "event": "sessionStart", "message": event_msg}
+        result["project"] = _detect_project_context(data, "copilot_cli")
+        return result
 
     # --- Cursor / other platforms (hook_event_name) ---
     hook_event = data.get("hook_event_name", "")
@@ -135,22 +149,75 @@ def parse_input():
             event_msg = hook_event
 
         plat = "cursor" if "cursor" in data.get("agent", "").lower() else "copilot_cli"
-        return {"platform": plat, "event": hook_event, "message": event_msg}
+        result = {"platform": plat, "event": hook_event, "message": event_msg}
+        result["project"] = _detect_project_context(data, plat)
+        return result
 
     # --- Codex ---
     if "agent-turn-complete" in data or data.get("type") == "agent-turn-complete":
-        return {
+        result = {
             "platform": "codex",
             "event": "agent-turn-complete",
             "message": data.get("message", "Agent turn completed"),
         }
+        result["project"] = _detect_project_context(data, "codex")
+        return result
 
     # Fallback
-    return {
+    result = {
         "platform": "unknown",
         "event": "notification",
         "message": data.get("message", json.dumps(data, ensure_ascii=False)),
     }
+    result["project"] = _detect_project_context(data, "unknown")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Project context detection
+# ---------------------------------------------------------------------------
+
+def _get_git_repo_name(directory):
+    """Return the basename of the git repo root for *directory*, or ``""``."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return os.path.basename(result.stdout.strip())
+    except FileNotFoundError:
+        pass  # git not installed
+    except subprocess.TimeoutExpired:
+        pass
+    return ""
+
+
+def _detect_project_context(data, platform):
+    """Return a short project identifier string, or ``""`` if unknown.
+
+    Resolution order:
+    1. ``cwd`` field in the JSON payload (Copilot CLI sends this)
+    2. ``os.getcwd()`` (hook subprocess inherits the parent's cwd)
+    3. Try ``_get_git_repo_name()`` on the resolved directory
+    4. Fall back to ``os.path.basename(cwd)``
+    """
+    try:
+        cwd = data.get("cwd", "") if isinstance(data, dict) else ""
+        if not cwd:
+            cwd = os.getcwd()
+
+        repo = _get_git_repo_name(cwd)
+        if repo:
+            return repo
+
+        name = os.path.basename(cwd)
+        return name if name else ""
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +249,11 @@ def _format_title(event_info):
 
 
 def _format_body(event_info):
-    return event_info["message"] or event_info["event"]
+    body = event_info["message"] or event_info["event"]
+    project = event_info.get("project", "")
+    if project:
+        return f"[{project}] {body}"
+    return body
 
 
 def send_sound(cfg, _event_info):
@@ -253,6 +324,9 @@ def send_email(cfg, event_info):
     body = _format_body(event_info)
     msg = MIMEText(body)
     msg["Subject"] = f"[Agent Notifier] {title}"
+    project = event_info.get("project", "")
+    if project:
+        msg["Subject"] = f"[Agent Notifier] [{project}] {title}"
     msg["From"] = from_addr
     msg["To"] = to_addr
     with smtplib.SMTP(host, port, timeout=10) as server:

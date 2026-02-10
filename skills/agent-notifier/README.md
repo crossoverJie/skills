@@ -253,6 +253,24 @@ claude --debug
 - Check that `python3` is in your PATH
 - Verify the script path in the hook config is absolute and correct
 
+## Session Context
+
+When running multiple AI agent sessions simultaneously, notifications include a **project name prefix** so you can tell which session generated each alert.
+
+```
+Title: Agent Notifier — Claude Code
+Body:  [my-project] ✅ Task completed — waiting for your input
+```
+
+The project name is detected automatically:
+
+1. **Copilot CLI** — uses the `cwd` field from the hook payload
+2. **All platforms** — falls back to `os.getcwd()` (the hook subprocess inherits the parent's working directory)
+3. If the directory is inside a **git repository**, the repo name is used (e.g. `my-project` from `/Users/dev/my-project`)
+4. Otherwise the directory basename is used
+
+No configuration is needed — the context is always included when a project name can be determined.
+
 ## Architecture
 
 ```
