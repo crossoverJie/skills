@@ -1,6 +1,6 @@
 # AI Skills
 
-A collection of useful skills for AI agents (like GitHub Copilot CLI), following the [Agent Skills specification](https://agentskills.io/specification).
+A collection of useful skills for AI agents (like Claude Code/ Codex/ GitHub Copilot CLI), following the [Agent Skills specification](https://agentskills.io/specification).
 
 ## Skills
 
