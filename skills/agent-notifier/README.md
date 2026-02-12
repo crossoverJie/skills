@@ -15,13 +15,13 @@ Use each platform's **Hooks system** for deterministic triggering. The hook fire
 
 ## Supported Platforms
 
-| Platform | Hook Mechanism | Trigger Events |
-|----------|---------------|----------------|
-| **Claude Code** | `settings.json` hooks | `Notification` (idle_prompt, permission_prompt) |
-| **GitHub Copilot CLI** | `hooks.json` | `sessionEnd`, `postToolUse` |
-| **Cursor** | `hooks.json` | `stop`, `afterFileEdit` |
-| **Codex (OpenAI)** | notify setting | `agent-turn-complete` |
-| **Aider** | CLI flag | `--notifications-command` |
+| Platform               | Hook Mechanism        | Trigger Events                                  |
+|------------------------|-----------------------|-------------------------------------------------|
+| **Claude Code**        | `settings.json` hooks | `Notification` (idle_prompt, permission_prompt) |
+| **GitHub Copilot CLI** | `hooks.json`          | `sessionEnd`, `postToolUse`                     |
+| **Cursor**             | `hooks.json`          | `stop`, `afterFileEdit`                         |
+| **Codex (OpenAI)**     | notify setting        | `agent-turn-complete`                           |
+| **Aider**              | CLI flag              | `--notifications-command`                       |
 
 ## Installation
 
