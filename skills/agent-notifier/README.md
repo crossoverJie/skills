@@ -23,6 +23,7 @@ Use each platform's **Hooks system** for deterministic triggering. The hook fire
 | **Codex (OpenAI)**     | notify setting        | `agent-turn-complete`                           |
 | **Aider**              | CLI flag              | `--notifications-command`                       |
 
+
 ## Installation
 
 ### Skills CLI (Recommended)
