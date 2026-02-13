@@ -29,9 +29,9 @@ Edit `config.json` with your credentials:
 Alternatively, use environment variables:
 - `SMMS_TOKEN` — sm.ms API token
 - `IMGUR_CLIENT_ID` — Imgur client ID
-- `GITHUB_TOKEN` — GitHub personal access token
-- `GITHUB_OWNER` — GitHub username / org
-- `GITHUB_REPO` — GitHub repository name
+- `IMAGE_UPLOADER_GITHUB_TOKEN` — GitHub personal access token
+- `IMAGE_UPLOADER_GITHUB_OWNER` — GitHub username / org
+- `IMAGE_UPLOADER_GITHUB_REPO` — GitHub repository name
 - `IMAGE_UPLOADER_PROVIDER` — default provider (`smms`, `imgur`, or `github`)
 
 ### GitHub CDN Options
@@ -59,5 +59,5 @@ python3 image_uploader.py /path/to/image.png --token YOUR_TOKEN
 IMGUR_CLIENT_ID="your_id" python3 image_uploader.py image.png --provider imgur
 
 # GitHub with env vars
-GITHUB_TOKEN="tok" GITHUB_OWNER="user" GITHUB_REPO="imgs" python3 image_uploader.py image.png --provider github
+IMAGE_UPLOADER_GITHUB_TOKEN="tok" IMAGE_UPLOADER_GITHUB_OWNER="user" IMAGE_UPLOADER_GITHUB_REPO="imgs" python3 image_uploader.py image.png --provider github
 ```

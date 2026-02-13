@@ -47,7 +47,7 @@ This skill allows uploading local image files to public image hosting services. 
             "github_cdn": "jsdelivr"
         }
         ```
-    *   **Environment Variables**: `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`
+    *   **Environment Variables**: `IMAGE_UPLOADER_GITHUB_TOKEN`, `IMAGE_UPLOADER_GITHUB_OWNER`, `IMAGE_UPLOADER_GITHUB_REPO`
     *   **CLI Argument**: `--token` (for token only)
     *   **CDN Options**:
         *   `"jsdelivr"` — `cdn.jsdelivr.net` (default, international)
@@ -92,7 +92,7 @@ IMGUR_CLIENT_ID="your_id" python3 skills/image-uploader/image_uploader.py image.
 
 **Upload to GitHub using env vars:**
 ```bash
-GITHUB_TOKEN="your_token" GITHUB_OWNER="user" GITHUB_REPO="images" python3 skills/image-uploader/image_uploader.py image.png --provider github
+IMAGE_UPLOADER_GITHUB_TOKEN="your_token" IMAGE_UPLOADER_GITHUB_OWNER="user" IMAGE_UPLOADER_GITHUB_REPO="images" python3 skills/image-uploader/image_uploader.py image.png --provider github
 ```
 
 ## Output

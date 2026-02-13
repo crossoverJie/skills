@@ -183,12 +183,12 @@ def main():
             sys.exit(1)
         uploader = ImgurUploader(token)
     elif provider == 'github':
-        token = args.token or os.environ.get('GITHUB_TOKEN') or config.get('github_token')
+        token = args.token or os.environ.get('IMAGE_UPLOADER_GITHUB_TOKEN') or config.get('github_token')
         if not token:
-            print("Error: GitHub token not found. Provide via --token, GITHUB_TOKEN env, or config.json.")
+            print("Error: GitHub token not found. Provide via --token, IMAGE_UPLOADER_GITHUB_TOKEN env, or config.json.")
             sys.exit(1)
-        owner = os.environ.get('GITHUB_OWNER') or config.get('github_owner')
-        repo = os.environ.get('GITHUB_REPO') or config.get('github_repo')
+        owner = os.environ.get('IMAGE_UPLOADER_GITHUB_OWNER') or config.get('github_owner')
+        repo = os.environ.get('IMAGE_UPLOADER_GITHUB_REPO') or config.get('github_repo')
         if not owner or not repo:
             print("Error: github_owner and github_repo are required in config.json or env vars.")
             sys.exit(1)
