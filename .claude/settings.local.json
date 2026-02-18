@@ -41,7 +41,14 @@
       "Bash(gh auth status:*)",
       "Bash(gh repo create:*)",
       "Bash(source ~/.zshrc)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "WebFetch(domain:opencode.ai)",
+      "WebFetch(domain:blog.devgenius.io)",
+      "WebFetch(domain:gist.github.com)",
+      "Bash(git -C /Users/chenjie/Documents/dev/ai/skills status)",
+      "Bash(git -C /Users/chenjie/Documents/dev/ai/skills diff)",
+      "Bash(git -C /Users/chenjie/Documents/dev/ai/skills log --oneline -5)",
+      "Bash(git -C /Users/chenjie/Documents/dev/ai/skills push)"
     ]
   }
 }
