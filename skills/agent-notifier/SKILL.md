@@ -4,7 +4,7 @@ description: >
   Multi-platform, multi-channel notification skill for AI code agents.
   Sends notifications (sound, macOS alert, Telegram, Email, Slack, Discord)
   when the agent needs user interaction or completes a task.
-  Supports Claude Code, GitHub Copilot CLI, Cursor, Codex, and Aider.
+  Supports Claude Code, GitHub Copilot CLI, Cursor, Codex, Aider, and OpenCode.
 license: Apache-2.0
 metadata:
   author: crossoverJie
@@ -33,6 +33,7 @@ LLM-based "play a sound when done" prompts are unreliable — context compressio
 | Cursor | `stop`, `afterFileEdit` |
 | Codex | `agent-turn-complete` |
 | Aider | `--notifications-command` |
+| OpenCode | `session.idle` (plugin) |
 
 ## Quick Start
 
@@ -62,11 +63,23 @@ cat > .github/hooks/agent-notifier.json << 'EOF'
 EOF
 ```
 
+### OpenCode Users
+
+OpenCode uses a JavaScript plugin system. Copy the plugin to your plugins directory:
+
+```bash
+mkdir -p ~/.config/opencode/plugins
+cp skills/agent-notifier/opencode-plugin.js ~/.config/opencode/plugins/agent-notifier.js
+```
+
 ## Manual Usage
 
 ```bash
 # Test with simulated Claude Code event
 echo '{"notification_type":"idle_prompt","message":"Waiting for input"}' | python3 skills/agent-notifier/notify.py
+
+# Test with simulated OpenCode event
+echo '{"platform":"opencode","event_type":"session.idle","message":"Session completed"}' | python3 skills/agent-notifier/notify.py
 
 # Test with command-line args (Aider style)
 python3 skills/agent-notifier/notify.py "Task completed"

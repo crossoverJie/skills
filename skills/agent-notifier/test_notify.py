@@ -101,6 +101,10 @@ class TestFormatTitle(unittest.TestCase):
         event = {"platform": "claude_code"}
         self.assertEqual(notify._format_title(event), "Agent Notifier — Claude Code")
 
+    def test_opencode_platform(self):
+        event = {"platform": "opencode"}
+        self.assertEqual(notify._format_title(event), "Agent Notifier — OpenCode")
+
     def test_unknown_platform(self):
         event = {"platform": "unknown"}
         self.assertEqual(notify._format_title(event), "Agent Notifier — AI Agent")
@@ -154,6 +158,15 @@ class TestParseInput(unittest.TestCase):
         result = notify.parse_input()
         self.assertEqual(result["platform"], "codex")
         self.assertEqual(result["project"], "codex-proj")
+
+    @patch("notify._detect_project_context", return_value="oc-proj")
+    @patch("notify._read_stdin", return_value='{"platform":"opencode","event_type":"session.idle","message":"Session completed"}')
+    def test_opencode_session_idle(self, mock_stdin, mock_ctx):
+        result = notify.parse_input()
+        self.assertEqual(result["platform"], "opencode")
+        self.assertEqual(result["event"], "session.idle")
+        self.assertEqual(result["message"], "✅ Session completed — waiting for your input")
+        self.assertEqual(result["project"], "oc-proj")
 
     @patch("notify._detect_project_context", return_value="proj")
     @patch("notify._read_stdin", return_value="")

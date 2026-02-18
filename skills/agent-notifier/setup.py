@@ -51,6 +51,7 @@ PLATFORMS = {
     "copilot_cli": "GitHub Copilot CLI",
     "cursor": "Cursor",
     "aider": "Aider",
+    "opencode": "OpenCode",
 }
 
 
@@ -72,6 +73,11 @@ def detect_platforms():
 
     # Aider
     found["aider"] = _command_exists("aider")
+
+    # OpenCode
+    found["opencode"] = _command_exists("opencode") or os.path.isdir(
+        os.path.expanduser("~/.config/opencode")
+    )
 
     return found
 
@@ -235,11 +241,22 @@ def install_aider_hooks():
     print(f"   notifications-command: python3 {NOTIFY_SCRIPT}")
 
 
+def install_opencode_hooks():
+    """Copy the opencode plugin to ~/.config/opencode/plugins/."""
+    plugins_dir = os.path.expanduser("~/.config/opencode/plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+    src = os.path.join(SCRIPT_DIR, "opencode-plugin.js")
+    dst = os.path.join(plugins_dir, "agent-notifier.js")
+    shutil.copy2(src, dst)
+    print(f"   Installed plugin to {dst}")
+
+
 PLATFORM_INSTALLERS = {
     "claude_code": install_claude_code_hooks,
     "copilot_cli": install_copilot_cli_hooks,
     "cursor": install_cursor_hooks,
     "aider": install_aider_hooks,
+    "opencode": install_opencode_hooks,
 }
 
 

@@ -36,6 +36,7 @@ PLATFORM_LABELS = {
     "cursor": "Cursor",
     "codex": "Codex",
     "aider": "Aider",
+    "opencode": "OpenCode",
     "unknown": "AI Agent",
 }
 
@@ -78,6 +79,17 @@ def parse_input():
         # Non-JSON stdin – treat the text as a plain message
         result = {"platform": "unknown", "event": "notification", "message": raw}
         result["project"] = _detect_project_context({}, "unknown")
+        return result
+
+    # --- OpenCode ---
+    if data.get("platform") == "opencode":
+        event_type = data.get("event_type", "notification")
+        event_messages = {
+            "session.idle": "✅ Session completed — waiting for your input",
+        }
+        event_msg = event_messages.get(event_type, data.get("message", event_type))
+        result = {"platform": "opencode", "event": event_type, "message": event_msg}
+        result["project"] = _detect_project_context(data, "opencode")
         return result
 
     # --- Claude Code ---
