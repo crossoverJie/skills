@@ -194,7 +194,7 @@ def main():
             sys.exit(1)
         path = config.get('github_path', 'images')
         branch = config.get('github_branch', 'main')
-        cdn = config.get('github_cdn', 'jsdelivr')
+        cdn = os.environ.get('IMAGE_UPLOADER_GITHUB_CDN') or config.get('github_cdn', 'jsdelivr')
         uploader = GitHubUploader(token, owner, repo, path, branch, cdn)
     else:
         token = args.token or os.environ.get('SMMS_TOKEN') or config.get('smms_token')

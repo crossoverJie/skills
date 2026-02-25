@@ -47,7 +47,7 @@ This skill allows uploading local image files to public image hosting services. 
             "github_cdn": "jsdelivr"
         }
         ```
-    *   **Environment Variables**: `IMAGE_UPLOADER_GITHUB_TOKEN`, `IMAGE_UPLOADER_GITHUB_OWNER`, `IMAGE_UPLOADER_GITHUB_REPO`
+    *   **Environment Variables**: `IMAGE_UPLOADER_GITHUB_TOKEN`, `IMAGE_UPLOADER_GITHUB_OWNER`, `IMAGE_UPLOADER_GITHUB_REPO`, `IMAGE_UPLOADER_GITHUB_CDN`
     *   **CLI Argument**: `--token` (for token only)
     *   **CDN Options**:
         *   `"jsdelivr"` — `cdn.jsdelivr.net` (default, international)

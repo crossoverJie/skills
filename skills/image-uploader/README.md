@@ -32,6 +32,7 @@ Alternatively, use environment variables:
 - `IMAGE_UPLOADER_GITHUB_TOKEN` — GitHub personal access token
 - `IMAGE_UPLOADER_GITHUB_OWNER` — GitHub username / org
 - `IMAGE_UPLOADER_GITHUB_REPO` — GitHub repository name
+- `IMAGE_UPLOADER_GITHUB_CDN` — CDN domain (`jsdelivr` or `china`)
 - `IMAGE_UPLOADER_PROVIDER` — default provider (`smms`, `imgur`, or `github`)
 
 ### GitHub CDN Options
