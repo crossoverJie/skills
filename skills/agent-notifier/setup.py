@@ -156,6 +156,16 @@ def configure_channels(config):
         dc["webhook_url"] = _input("   Webhook URL", dc.get("webhook_url", ""))
     channels["discord"] = dc
 
+    # DingTalk
+    print("\n7. DingTalk (钉钉群机器人)")
+    enabled = _confirm("   Enable DingTalk?", default=False)
+    dt = channels.get("dingtalk", {"enabled": False, "webhook_url": "", "secret": ""})
+    dt["enabled"] = enabled
+    if enabled:
+        dt["webhook_url"] = _input("   Webhook URL", dt.get("webhook_url", ""))
+        dt["secret"] = _input("   Secret (optional, for signing)", dt.get("secret", ""))
+    channels["dingtalk"] = dt
+
     return config
 
 

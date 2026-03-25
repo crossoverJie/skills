@@ -8,15 +8,20 @@ channels concurrently.
 Requires only the Python standard library (no pip dependencies).
 """
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 import platform
 import smtplib
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from email.mime.text import MIMEText
 from urllib.error import URLError
+from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -371,6 +376,34 @@ def send_discord(cfg, event_info):
     urlopen(req, timeout=10)
 
 
+def send_dingtalk(cfg, event_info):
+    """Send a DingTalk (钉钉) message via group robot webhook."""
+    webhook_url = cfg.get("webhook_url", "")
+    if not webhook_url:
+        return
+    title = _format_title(event_info)
+    body = _format_body(event_info)
+    # Optional HMAC-SHA256 signing
+    secret = cfg.get("secret", "")
+    if secret:
+        timestamp = str(int(time.time() * 1000))
+        string_to_sign = f"{timestamp}\n{secret}"
+        hmac_code = hmac.new(
+            secret.encode("utf-8"),
+            string_to_sign.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).digest()
+        sign = quote_plus(base64.b64encode(hmac_code).decode("utf-8"))
+        sep = "&" if "?" in webhook_url else "?"
+        webhook_url = f"{webhook_url}{sep}timestamp={timestamp}&sign={sign}"
+    payload = json.dumps({
+        "msgtype": "markdown",
+        "markdown": {"title": title, "text": f"**{title}**\n\n{body}"},
+    }).encode()
+    req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
+    urlopen(req, timeout=10)
+
+
 # Map channel name → sender function
 CHANNEL_SENDERS = {
     "sound": send_sound,
@@ -379,6 +412,7 @@ CHANNEL_SENDERS = {
     "email": send_email,
     "slack": send_slack,
     "discord": send_discord,
+    "dingtalk": send_dingtalk,
 }
 
 

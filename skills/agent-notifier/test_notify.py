@@ -254,5 +254,55 @@ class TestSendEmailSubject(unittest.TestCase):
         self.assertNotIn("[my-proj]", sent_msg)
 
 
+class TestSendDingtalk(unittest.TestCase):
+    """Tests for send_dingtalk()."""
+
+    @patch("notify.urlopen")
+    def test_sends_markdown_with_valid_config(self, mock_urlopen):
+        cfg = {"webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=abc"}
+        event_info = {
+            "platform": "claude_code",
+            "event": "idle_prompt",
+            "message": "Task completed",
+            "project": "my-app",
+        }
+        notify.send_dingtalk(cfg, event_info)
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        body = json.loads(req.data.decode())
+        self.assertEqual(body["msgtype"], "markdown")
+        self.assertIn("my-app", body["markdown"]["text"])
+
+    @patch("notify.urlopen")
+    def test_returns_early_without_webhook_url(self, mock_urlopen):
+        cfg = {"webhook_url": ""}
+        event_info = {
+            "platform": "claude_code",
+            "event": "idle_prompt",
+            "message": "Task completed",
+        }
+        notify.send_dingtalk(cfg, event_info)
+        mock_urlopen.assert_not_called()
+
+    @patch("notify.urlopen")
+    @patch("notify.time.time", return_value=1700000000.0)
+    def test_signs_request_when_secret_configured(self, mock_time, mock_urlopen):
+        cfg = {
+            "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=abc",
+            "secret": "SEC123456",
+        }
+        event_info = {
+            "platform": "claude_code",
+            "event": "idle_prompt",
+            "message": "Done",
+        }
+        notify.send_dingtalk(cfg, event_info)
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        url = req.full_url
+        self.assertIn("timestamp=1700000000000", url)
+        self.assertIn("sign=", url)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@
 name: agent-notifier
 description: >
   Multi-platform, multi-channel notification skill for AI code agents.
-  Sends notifications (sound, macOS alert, Telegram, Email, Slack, Discord)
+  Sends notifications (sound, macOS alert, Telegram, Email, Slack, Discord, DingTalk)
   when the agent needs user interaction or completes a task.
   Supports Claude Code, GitHub Copilot CLI, Cursor, Codex, Aider, and OpenCode.
 license: Apache-2.0
@@ -95,6 +95,7 @@ python3 skills/agent-notifier/notify.py "Task completed"
 | Email | Disabled | SMTP credentials |
 | Slack | Disabled | Incoming Webhook URL |
 | Discord | Disabled | Webhook URL |
+| DingTalk | Disabled | Webhook URL + optional Secret |
 
 ## Configuration
 

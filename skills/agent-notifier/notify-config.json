@@ -28,6 +28,11 @@
     "discord": {
       "enabled": false,
       "webhook_url": ""
+    },
+    "dingtalk": {
+      "enabled": false,
+      "webhook_url": "",
+      "secret": ""
     }
   }
 }

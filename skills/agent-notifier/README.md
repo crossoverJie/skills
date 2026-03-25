@@ -1,6 +1,6 @@
 # Agent Notifier
 
-Multi-platform, multi-channel notification system for AI code agents. Get notified via sound, macOS alerts, Telegram, Email, Slack, or Discord when your agent needs input or completes a task.
+Multi-platform, multi-channel notification system for AI code agents. Get notified via sound, macOS alerts, Telegram, Email, Slack, Discord, or DingTalk when your agent needs input or completes a task.
 
 ## Problem
 
@@ -172,6 +172,22 @@ Shows a native macOS notification via `osascript`. Only available on macOS.
 2. Create a new webhook, choose the target channel
 3. Copy the webhook URL and set it in `notify-config.json`
 
+### DingTalk (钉钉)
+
+1. In your DingTalk group, go to **Group Settings > Bots > Add Robot > Custom (via Webhook)**
+2. Choose a security method — **Sign (加签)** is recommended
+3. Copy the **Webhook URL** and optional **Secret** (signing key) into `notify-config.json`
+
+```json
+{
+  "dingtalk": {
+    "enabled": true,
+    "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=...",
+    "secret": "SEC..."
+  }
+}
+```
+
 ## Configuration File
 
 The config file is searched in order:
@@ -209,6 +225,11 @@ The config file is searched in order:
     "discord": {
       "enabled": false,
       "webhook_url": "https://discord.com/api/webhooks/..."
+    },
+    "dingtalk": {
+      "enabled": false,
+      "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=...",
+      "secret": "SEC..."
     }
   }
 }
@@ -279,7 +300,7 @@ stdin (JSON from hook) → parse_input() → unified event model
                                               ↓
                               load_config() → notify-config.json
                                               ↓
-                              ThreadPoolExecutor → [sound, macOS, telegram, ...]
+                              ThreadPoolExecutor → [sound, macOS, telegram, dingtalk, ...]
 ```
 
 Each channel runs in its own thread. A failure in one channel does not affect others. Errors are logged to stderr.
