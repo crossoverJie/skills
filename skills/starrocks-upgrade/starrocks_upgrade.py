@@ -450,25 +450,739 @@ def scan_mv_changes(repo_path, branch_a, branch_b):
 
 
 # ---------------------------------------------------------------------------
+# Scanner helpers
+# ---------------------------------------------------------------------------
+
+def _extract_fields_from_content(content, regex):
+    """Extract field definitions from content using regex. Returns dict of {name: {type, value}}."""
+    if not content:
+        return {}
+    fields = {}
+    for m in re.finditer(regex, content):
+        type_ = m.group(1)
+        name = m.group(2)
+        value = m.group(3).strip()
+        fields[name] = {"type": type_, "value": value}
+    return fields
+
+
+def _diff_field_sets(old_fields, new_fields, trivial_values=None):
+    """Compare two field dicts and return (added, removed, changed) lists.
+
+    Each item in the returned lists is a dict with keys: name, type, old_value, new_value.
+    """
+    if trivial_values is None:
+        trivial_values = {"0", "0L", "0f", "0d", '""', "null", "{}"}
+
+    added = []
+    removed = []
+    changed = []
+
+    for name in sorted(set(old_fields.keys()) & set(new_fields.keys())):
+        if old_fields[name]["value"] != new_fields[name]["value"]:
+            changed.append({
+                "name": name,
+                "type": old_fields[name]["type"],
+                "old_value": old_fields[name]["value"],
+                "new_value": new_fields[name]["value"],
+            })
+
+    for name in sorted(set(new_fields.keys()) - set(old_fields.keys())):
+        val = new_fields[name]["value"].rstrip(";").rstrip("L").rstrip("f").rstrip("d")
+        if val not in trivial_values and val != "0":
+            added.append({
+                "name": name,
+                "type": new_fields[name]["type"],
+                "new_value": new_fields[name]["value"],
+            })
+
+    for name in sorted(set(old_fields.keys()) - set(new_fields.keys())):
+        removed.append({
+            "name": name,
+            "type": old_fields[name]["type"],
+            "old_value": old_fields[name]["value"],
+        })
+
+    return added, removed, changed
+
+
+HIGH_RISK_CONFIG_NAMES = {
+    "mysql_server_version", "transform_type_prefer_string_for_varchar",
+    "max_varchar_length", "enable_load_volume_from_conf",
+    "enable_alter_struct_column", "enable_rollback_default_warehouse",
+}
+
+HIGH_RISK_SESSION_VAR_NAMES = {
+    "enable_materialized_view_rewrite", "query_timeout", "sql_mode",
+    "pipeline_dop", "parallel_fragment_exec_instance_num",
+    "prefer_compute_node", "enable_profile", "wait_timeout",
+    "net_read_timeout", "new_planner_optimize_timeout",
+    "enable_replication_starlet", "transaction_isolation",
+}
+
+HIGH_RISK_BE_CONFIG_NAMES = {
+    "max_tablet_version_count", "base_compaction_check_interval_seconds",
+    "storage_root_path", "mem_limit", "chunk_reserved_bytes_limit",
+    "max_runnings_transactions_per_txn_map", "tablet_meta_shutdown_grace_time_s",
+    "primary_key_limit_size", "update_cache_expire_sec",
+    "tablet_max_versions", "l0_max_mem_usage",
+}
+
+DATA_IMPACT_CONFIG_NAMES = {
+    "max_varchar_length", "transform_type_prefer_string_for_varchar",
+    "enable_alter_struct_column", "max_tablet_version_count",
+    "primary_key_limit_size", "chunk_reserved_bytes_limit",
+}
+
+BEHAVIOR_IMPACT_CONFIG_NAMES = {
+    "enable_materialized_view_rewrite", "sql_mode", "query_timeout",
+    "mysql_server_version", "pipeline_dop",
+    "parallel_fragment_exec_instance_num", "prefer_compute_node",
+}
+
+
+def _is_high_risk_name(name, high_risk_set):
+    """Check if a config name is in the high-risk set or is a substring match."""
+    if name in high_risk_set:
+        return True
+    for risk_name in high_risk_set:
+        if risk_name in name or name in risk_name:
+            return True
+    return False
+
+
+def _assess_impact(name, change_type="config_changed"):
+    """Assess compatibility impact for a config/variable change."""
+    return {
+        "data": _is_high_risk_name(name, DATA_IMPACT_CONFIG_NAMES),
+        "behavior": _is_high_risk_name(name, BEHAVIOR_IMPACT_CONFIG_NAMES),
+        "operational": _is_high_risk_name(name, HIGH_RISK_CONFIG_NAMES | HIGH_RISK_SESSION_VAR_NAMES | HIGH_RISK_BE_CONFIG_NAMES),
+        "rolling_upgrade": change_type in ("protocol_field_removed", "storage_format_changed"),
+    }
+
+
+def _classify_config_risk(name, change_type, old_value=None, new_value=None):
+    """Classify risk level for a config change."""
+    if _is_high_risk_name(name, HIGH_RISK_CONFIG_NAMES | HIGH_RISK_SESSION_VAR_NAMES | HIGH_RISK_BE_CONFIG_NAMES):
+        return "high"
+    if old_value is not None and new_value is not None:
+        if old_value in ("true", "false") and new_value in ("true", "false"):
+            return "medium"
+    return "low"
+
+
+def _diff_changed_lines(diff):
+    """Extract added/removed lines from a git diff."""
+    added = []
+    removed = []
+    for line in diff.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:].strip())
+        elif line.startswith("-") and not line.startswith("---"):
+            removed.append(line[1:].strip())
+    return added, removed
+
+
+def _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
+    """Find changed files matching patterns and return their diffs.
+
+    Returns list of (filepath, diff_text) tuples.
+    """
+    changed_files = []
+    for pattern in file_patterns:
+        output = run_cmd(
+            ["git", "diff", "--name-only", f"{branch_a}..{branch_b}", "--", f"**/{pattern}"],
+            cwd=repo_path, check=False, timeout=60,
+        )
+        if not output:
+            continue
+        for filepath in output.strip().split("\n"):
+            if filepath and filepath not in [f for f, _ in changed_files]:
+                changed_files.append(filepath)
+
+    results = []
+    for filepath in changed_files:
+        diff = run_cmd(
+            ["git", "diff", f"{branch_a}..{branch_b}", "--", filepath],
+            cwd=repo_path, check=False, timeout=30,
+        )
+        if diff:
+            results.append((filepath, diff))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Additional scanners (Session Variable, System Variable, BE Config, etc.)
+# ---------------------------------------------------------------------------
+
+def _parse_session_variable_java(content):
+    """Parse SessionVariable.java content with @VarAttr annotation metadata.
+
+    Uses a line-by-line state machine to capture:
+    - Field type, name, default value
+    - @VarAttr annotation: var_name (SQL variable name), flag (INVISIBLE, etc.)
+
+    Returns dict of {field_name: {type, value, var_name, flag}}
+    """
+    if not content:
+        return {}
+
+    vars_ = {}
+    lines = content.split("\n")
+    in_annotation = False
+    annotation_text = ""
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Track @VarAttr annotation (may span multiple lines if '(' without ')')
+        if "@VarAttr" in stripped:
+            annotation_text = stripped
+            if "(" in stripped and ")" not in stripped:
+                in_annotation = True
+            else:
+                in_annotation = False
+            continue
+
+        if in_annotation:
+            annotation_text += " " + stripped
+            if ")" in stripped:
+                in_annotation = False
+            continue
+
+        # Match field declaration — handle any access modifier (public/private/protected/static/final)
+        m = re.match(r'\s*(?:(?:public|private|protected)\s+)?(?:(?:static|final)\s+)*(\w+)\s+(\w+)\s*=\s*(.+)', stripped)
+        if m:
+            type_, name, value_raw = m.group(1), m.group(2), m.group(3).strip()
+            # Strip inline comments first, then semicolons and whitespace
+            value = re.sub(r'//.*$', '', value_raw).strip().rstrip(";").strip()
+
+            var_name = None
+            flag = None
+            if annotation_text:
+                name_m = re.search(r'name\s*=\s*(\w+)', annotation_text)
+                if name_m:
+                    var_name = name_m.group(1)
+                flag_m = re.search(r'flag\s*=\s*(\w+(?:\.\w+)*)', annotation_text)
+                if flag_m:
+                    flag = flag_m.group(1)
+
+            vars_[name] = {
+                "type": type_,
+                "value": value,
+                "var_name": var_name,
+                "flag": flag,
+            }
+            annotation_text = ""
+        elif not stripped.startswith("//") and stripped and not stripped.startswith("@"):
+            # Non-comment, non-annotation, non-field line — reset annotation to prevent leakage
+            annotation_text = ""
+
+    return vars_
+
+
+def scan_session_variables(repo_path, branch_a, branch_b):
+    """Scan SessionVariable.java for default value changes between branches.
+
+    Captures @VarAttr metadata (var_name, flag).
+    Returns list of dicts with changed session variable details.
+    """
+    config_path = "fe/fe-core/src/main/java/com/starrocks/qe/SessionVariable.java"
+
+    def extract(ref):
+        content = run_cmd(["git", "show", f"{ref}:{config_path}"], cwd=repo_path, check=False)
+        return _parse_session_variable_java(content) if content else {}
+
+    old_vars = extract(branch_a)
+    new_vars = extract(branch_b)
+    if not old_vars or not new_vars:
+        return []
+
+    added, removed, changed = _diff_field_sets(old_vars, new_vars)
+    findings = []
+
+    for item in changed:
+        risk = _classify_config_risk(item["name"], "session_var_changed", item["old_value"], item["new_value"])
+        finding = {
+            "type": "session_var_changed",
+            "name": item["name"],
+            "config_type": item["type"],
+            "old_value": item["old_value"],
+            "new_value": item["new_value"],
+            "risk": risk,
+            "impact": _assess_impact(item["name"]),
+            "file": config_path,
+        }
+        # Attach @VarAttr metadata if available
+        new_meta = new_vars.get(item["name"], {})
+        if new_meta.get("var_name"):
+            finding["var_name"] = new_meta["var_name"]
+        if new_meta.get("flag"):
+            finding["flag"] = new_meta["flag"]
+        findings.append(finding)
+
+    for item in added:
+        risk = _classify_config_risk(item["name"], "session_var_added")
+        finding = {
+            "type": "session_var_added",
+            "name": item["name"],
+            "config_type": item["type"],
+            "default_value": item["new_value"],
+            "risk": risk,
+            "impact": _assess_impact(item["name"]),
+            "file": config_path,
+        }
+        new_meta = new_vars.get(item["name"], {})
+        if new_meta.get("var_name"):
+            finding["var_name"] = new_meta["var_name"]
+        if new_meta.get("flag"):
+            finding["flag"] = new_meta["flag"]
+        findings.append(finding)
+
+    for item in removed:
+        findings.append({
+            "type": "session_var_removed",
+            "name": item["name"],
+            "config_type": item["type"],
+            "old_value": item["old_value"],
+            "risk": "high",
+            "impact": _assess_impact(item["name"]),
+            "file": config_path,
+        })
+
+    return findings
+
+
+def scan_system_variables(repo_path, branch_a, branch_b):
+    """Scan GlobalVariable.java for system variable default changes."""
+    config_paths = [
+        "fe/fe-core/src/main/java/com/starrocks/qe/GlobalVariable.java",
+        "fe/fe-core/src/main/java/com/starrocks/qe/SysVariable.java",
+    ]
+    field_regex = re.compile(r'public\s+(?:static\s+)?(\w+)\s+(\w+)\s*=\s*(.+?);')
+    findings = []
+
+    for config_path in config_paths:
+        def extract(ref):
+            content = run_cmd(["git", "show", f"{ref}:{config_path}"], cwd=repo_path, check=False)
+            return _extract_fields_from_content(content, field_regex) if content else {}
+
+        old_vars = extract(branch_a)
+        new_vars = extract(branch_b)
+        if not old_vars or not new_vars:
+            continue
+
+        _, _, changed = _diff_field_sets(old_vars, new_vars)
+        for item in changed:
+            risk = _classify_config_risk(item["name"], "system_var_changed", item["old_value"], item["new_value"])
+            findings.append({
+                "type": "system_var_changed",
+                "name": item["name"],
+                "config_type": item["type"],
+                "old_value": item["old_value"],
+                "new_value": item["new_value"],
+                "risk": risk,
+                "impact": _assess_impact(item["name"]),
+                "file": config_path,
+            })
+
+    return findings
+
+
+def _parse_be_config_h(content):
+    """Parse BE config.h CONF_* macros.
+
+    StarRocks BE uses macros like:
+        CONF_Int32(name, "default")
+        CONF_Bool(name, "default")
+        CONF_String(name, "default")
+        CONF_mInt32(name, "default")  // mutable
+        CONF_mBool(name, "default")   // mutable
+
+    Returns dict of {name: {type, value, mutable}}
+    """
+    if not content:
+        return {}
+    configs = {}
+    # Match CONF_* macros: CONF_Type(name, "default_value")
+    for m in re.finditer(r'CONF_(m?\w+)\((\w+),\s*"([^"]*)"\)', content):
+        macro_type, name, value = m.group(1), m.group(2), m.group(3)
+        mutable = macro_type.startswith("m")
+        configs[name] = {"type": macro_type, "value": value, "mutable": mutable}
+    return configs
+
+
+def scan_be_config(repo_path, branch_a, branch_b):
+    """Scan BE config.h for default value changes between branches.
+
+    StarRocks BE uses CONF_* macros (CONF_Int32, CONF_Bool, CONF_String, etc.)
+    with CONF_m* prefix for mutable configs.
+    """
+    config_path = "be/src/common/config.h"
+
+    def extract(ref):
+        content = run_cmd(["git", "show", f"{ref}:{config_path}"], cwd=repo_path, check=False)
+        return _parse_be_config_h(content) if content else {}
+
+    old_configs = extract(branch_a)
+    new_configs = extract(branch_b)
+    if not old_configs or not new_configs:
+        return []
+
+    added, removed, changed = _diff_field_sets(old_configs, new_configs)
+    findings = []
+
+    for item in changed:
+        risk = _classify_config_risk(item["name"], "be_config_changed", item["old_value"], item["new_value"])
+        finding = {
+            "type": "be_config_changed",
+            "name": item["name"],
+            "config_type": item["type"],
+            "old_value": item["old_value"],
+            "new_value": item["new_value"],
+            "risk": risk,
+            "impact": _assess_impact(item["name"]),
+            "file": config_path,
+        }
+        new_meta = new_configs.get(item["name"], {})
+        if "mutable" in new_meta:
+            finding["mutable"] = new_meta["mutable"]
+        findings.append(finding)
+
+    for item in added:
+        risk = _classify_config_risk(item["name"], "be_config_added")
+        finding = {
+            "type": "be_config_added",
+            "name": item["name"],
+            "config_type": item["type"],
+            "default_value": item["new_value"],
+            "risk": risk,
+            "impact": _assess_impact(item["name"]),
+            "file": config_path,
+        }
+        new_meta = new_configs.get(item["name"], {})
+        if "mutable" in new_meta:
+            finding["mutable"] = new_meta["mutable"]
+        findings.append(finding)
+
+    for item in removed:
+        findings.append({
+            "type": "be_config_removed",
+            "name": item["name"],
+            "config_type": item["type"],
+            "old_value": item["old_value"],
+            "risk": "high",
+            "impact": _assess_impact(item["name"]),
+            "file": config_path,
+        })
+
+    return findings
+
+
+def scan_protocol_changes(repo_path, branch_a, branch_b):
+    """Scan Thrift/Protobuf IDL files for protocol-breaking changes.
+
+    Detects removed fields, new required fields, enum value changes, and
+    service/method removals that break FE-BE communication or rolling upgrades.
+    """
+    file_patterns = ["*.thrift", "*.proto"]
+    protocol_keywords = {"struct", "enum", "service", "message", "rpc", "required", "optional", "removed"}
+
+    findings = []
+    for filepath, diff in _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
+        added_lines, removed_lines = _diff_changed_lines(diff)
+
+        # Detect removed enum values
+        removed_enum = [l for l in removed_lines if re.match(r'\s*\d+\s*[:=]', l.strip())]
+        added_enum = [l for l in added_lines if re.match(r'\s*\d+\s*[:=]', l.strip())]
+        if removed_enum and not added_enum:
+            findings.append({
+                "type": "protocol_field_removed",
+                "file": filepath,
+                "detail": f"{len(removed_enum)} enum value(s) removed",
+                "diff_preview": "\n".join(removed_enum[:10]),
+                "risk": "critical",
+                "impact": {"data": False, "behavior": True, "operational": False, "rolling_upgrade": True},
+            })
+
+        # Detect removed struct/message fields (lines with field IDs that were deleted)
+        removed_fields = [l for l in removed_lines if re.search(r':\s*\w+', l) and any(kw in l.lower() for kw in protocol_keywords)]
+        if removed_fields:
+            findings.append({
+                "type": "protocol_field_removed",
+                "file": filepath,
+                "detail": f"{len(removed_fields)} field(s) removed from struct/message",
+                "diff_preview": "\n".join(removed_fields[:10]),
+                "risk": "critical",
+                "impact": {"data": False, "behavior": True, "operational": False, "rolling_upgrade": True},
+            })
+
+        # Detect new required fields
+        new_required = [l for l in added_lines if "required" in l.lower()]
+        if new_required:
+            findings.append({
+                "type": "protocol_required_field_added",
+                "file": filepath,
+                "detail": f"{len(new_required)} new required field(s) added",
+                "diff_preview": "\n".join(new_required[:10]),
+                "risk": "high",
+                "impact": {"data": False, "behavior": True, "operational": False, "rolling_upgrade": True},
+            })
+
+    return findings
+
+
+def scan_parser_changes(repo_path, branch_a, branch_b):
+    """Scan SQL parser files for syntax changes.
+
+    Detects changes to grammar rules, token definitions, and AST building
+    that could affect SQL compatibility.
+    """
+    file_patterns = [
+        "StarRocksParser.g4", "StarRocksLex.jflex",
+        "SqlParser.java", "AstBuilder.java",
+    ]
+    parser_keywords = {"ALTER", "DROP", "CREATE", "UNSUPPORTED", "DEPRECATED", "reserved", "syntax", "nonReserved"}
+
+    findings = []
+    for filepath, diff in _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
+        added_lines, removed_lines = _diff_changed_lines(diff)
+
+        matched_keywords = set()
+        for line in added_lines + removed_lines:
+            for kw in parser_keywords:
+                if kw in line:
+                    matched_keywords.add(kw)
+
+        if matched_keywords:
+            findings.append({
+                "type": "parser_change",
+                "file": filepath,
+                "keywords": sorted(matched_keywords),
+                "lines_changed": len(added_lines) + len(removed_lines),
+                "diff_preview": "\n".join((added_lines + removed_lines)[:20]),
+                "risk": "medium",
+                "impact": {"data": False, "behavior": True, "operational": False, "rolling_upgrade": False},
+            })
+
+    return findings
+
+
+def scan_auth_changes(repo_path, branch_a, branch_b):
+    """Scan authentication and privilege management files for changes."""
+    file_patterns = [
+        "AuthenticationManager.java", "PrivilegeManager.java",
+        "AuthorizationMgr.java", "AccessController*.java",
+    ]
+    auth_keywords = {"GRANT", "REVOKE", "privilege", "authentication", "plugin", "role", "user", "password", "LDAP", "OIDC"}
+
+    findings = []
+    for filepath, diff in _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
+        added_lines, removed_lines = _diff_changed_lines(diff)
+
+        matched_keywords = set()
+        for line in added_lines + removed_lines:
+            for kw in auth_keywords:
+                if kw.lower() in line.lower():
+                    matched_keywords.add(kw)
+
+        if matched_keywords:
+            findings.append({
+                "type": "auth_change",
+                "file": filepath,
+                "keywords": sorted(matched_keywords),
+                "lines_changed": len(added_lines) + len(removed_lines),
+                "diff_preview": "\n".join((added_lines + removed_lines)[:20]),
+                "risk": "medium",
+                "impact": {"data": False, "behavior": False, "operational": True, "rolling_upgrade": False},
+            })
+
+    return findings
+
+
+def scan_storage_format(repo_path, branch_a, branch_b):
+    """Scan BE storage format files for data format changes.
+
+    Detects changes to segment format, tablet metadata, page format, encoding,
+    and compression that could affect existing data readability.
+    """
+    file_patterns = [
+        "segment_format*.h", "tablet_meta*.h", "rowset/segment*.cpp",
+        "column/ordinal_page*.cpp", "storage_types.h",
+    ]
+    format_keywords = {"VERSION", "FORMAT", "PAGE_SIZE", "CHUNK_SIZE", "ENCODING", "COMPRESSION", "DEFAULT_COMPRESSION", "TABLET_FORMAT_VERSION", "ROWSET_VERSION"}
+
+    findings = []
+    for filepath, diff in _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
+        added_lines, removed_lines = _diff_changed_lines(diff)
+
+        matched_keywords = set()
+        for line in added_lines + removed_lines:
+            for kw in format_keywords:
+                if kw in line:
+                    matched_keywords.add(kw)
+
+        if matched_keywords:
+            findings.append({
+                "type": "storage_format_changed",
+                "file": filepath,
+                "keywords": sorted(matched_keywords),
+                "lines_changed": len(added_lines) + len(removed_lines),
+                "diff_preview": "\n".join((added_lines + removed_lines)[:20]),
+                "risk": "critical",
+                "impact": {"data": True, "behavior": True, "operational": True, "rolling_upgrade": True},
+            })
+
+    return findings
+
+
+def scan_charset_collation(repo_path, branch_a, branch_b):
+    """Scan charset and collation files for string comparison behavior changes."""
+    file_patterns = [
+        "Collation*.java", "charset*.java", "Charset*.java",
+    ]
+    charset_keywords = {"utf8mb4", "utf8", "collation", "gmb", "binary", "CI", "CS", "unicode", "general_ci", "0900"}
+
+    findings = []
+    for filepath, diff in _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
+        added_lines, removed_lines = _diff_changed_lines(diff)
+
+        matched_keywords = set()
+        for line in added_lines + removed_lines:
+            for kw in charset_keywords:
+                if kw.lower() in line.lower():
+                    matched_keywords.add(kw)
+
+        if matched_keywords:
+            findings.append({
+                "type": "charset_collation_change",
+                "file": filepath,
+                "keywords": sorted(matched_keywords),
+                "lines_changed": len(added_lines) + len(removed_lines),
+                "diff_preview": "\n".join((added_lines + removed_lines)[:20]),
+                "risk": "medium",
+                "impact": {"data": True, "behavior": True, "operational": False, "rolling_upgrade": False},
+            })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Unified scanner registry
+# ---------------------------------------------------------------------------
+
+_SCANNERS = [
+    ("session_variables", scan_session_variables),
+    ("system_variables", scan_system_variables),
+    ("be_config", scan_be_config),
+    ("protocol", scan_protocol_changes),
+    ("parser", scan_parser_changes),
+    ("auth", scan_auth_changes),
+    ("storage_format", scan_storage_format),
+    ("charset_collation", scan_charset_collation),
+]
+
+
+# ---------------------------------------------------------------------------
 # Incompatibility scanning
 # ---------------------------------------------------------------------------
+
+def _parse_config_java(content):
+    """Parse Config.java content with @ConfField annotation metadata.
+
+    Uses a line-by-line state machine to capture:
+    - Field type, name, default value
+    - @ConfField annotation: mutable flag, comment
+    - @Deprecated annotation
+    - Multi-line field declarations
+
+    Returns dict of {name: {type, value, mutable, comment, deprecated}}
+    """
+    if not content:
+        return {}
+
+    configs = {}
+    lines = content.split("\n")
+    in_annotation = False
+    annotation_text = ""
+    deprecated = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Track @Deprecated
+        if stripped == "@Deprecated":
+            deprecated = True
+            continue
+
+        # Track @ConfField annotation (may span multiple lines if it has '(' but no ')')
+        if "@ConfField" in stripped:
+            annotation_text = stripped
+            if "(" in stripped and ")" not in stripped:
+                # Multi-line annotation: @ConfField(mutable = true,\n  comment = "...")
+                in_annotation = True
+            else:
+                # Complete annotation: @ConfField or @ConfField(mutable = true)
+                in_annotation = False
+            continue
+
+        if in_annotation:
+            annotation_text += " " + stripped
+            if ")" in stripped:
+                in_annotation = False
+            continue
+
+        # Match field declaration — capture value up to semicolon (handles inline comments)
+        m = re.match(r'\s*public\s+static\s+(\S+)\s+(\w+)\s*=\s*(.+?);', stripped)
+        if m:
+            type_, name, value_raw = m.group(1), m.group(2), m.group(3).strip()
+            # Multi-line values (no ';' on this line) — rare (1 case in 744 fields), skip
+            if ";" not in line and not value_raw:
+                continue
+            value = value_raw.strip()
+
+            # Parse annotation metadata
+            mutable = None
+            comment = None
+            if annotation_text:
+                mutable_m = re.search(r'mutable\s*=\s*(true|false)', annotation_text)
+                if mutable_m:
+                    mutable = mutable_m.group(1) == "true"
+                comment_m = re.search(r'comment\s*=\s*"([^"]*)"', annotation_text)
+                if comment_m:
+                    comment = comment_m.group(1)
+
+            configs[name] = {
+                "type": type_,
+                "value": value,
+                "mutable": mutable,
+                "comment": comment,
+                "deprecated": deprecated,
+            }
+
+            # Reset state
+            annotation_text = ""
+            deprecated = False
+        elif not stripped.startswith("//") and stripped and not stripped.startswith("@"):
+            # Non-comment, non-annotation, non-field line — reset state to prevent leakage
+            annotation_text = ""
+            if deprecated:
+                deprecated = False
+
+    return configs
+
 
 def scan_config_changes(repo_path, branch_a, branch_b):
     """Scan Config.java for default value changes between branches.
 
-    Returns list of dicts with changed config details.
+    Captures @ConfField annotation metadata (mutable, comment) and @Deprecated.
+    Returns list of dicts with changed config details including annotation info.
     """
     config_path = "fe/fe-core/src/main/java/com/starrocks/common/Config.java"
 
     def extract_configs(ref):
         content = run_cmd(["git", "show", f"{ref}:{config_path}"], cwd=repo_path, check=False)
-        if not content:
-            return {}
-        configs = {}
-        for m in re.finditer(r'public\s+static\s+(\S+)\s+(\w+)\s*=\s*(.+?);', content):
-            type_, name, value = m.group(1), m.group(2), m.group(3).strip()
-            configs[name] = {"type": type_, "value": value}
-        return configs
+        return _parse_config_java(content) if content else {}
 
     old_configs = extract_configs(branch_a)
     new_configs = extract_configs(branch_b)
@@ -476,28 +1190,68 @@ def scan_config_changes(repo_path, branch_a, branch_b):
         return []
 
     changes = []
+
+    # Changed configs
     for name in sorted(set(old_configs.keys()) & set(new_configs.keys())):
-        if old_configs[name]["value"] != new_configs[name]["value"]:
-            changes.append({
+        old = old_configs[name]
+        new = new_configs[name]
+        if old["value"] != new["value"]:
+            change = {
                 "type": "config_changed",
                 "name": name,
-                "config_type": old_configs[name]["type"],
-                "old_value": old_configs[name]["value"],
-                "new_value": new_configs[name]["value"],
+                "config_type": old["type"],
+                "old_value": old["value"],
+                "new_value": new["value"],
+                "file": config_path,
+            }
+            # Attach annotation metadata from new version
+            if new["mutable"] is not None:
+                change["mutable"] = new["mutable"]
+            if new["comment"]:
+                change["comment"] = new["comment"]
+            if old["deprecated"] or new["deprecated"]:
+                change["deprecated"] = True
+            changes.append(change)
+
+        # Detect annotation changes (mutable flag changed)
+        if old["mutable"] != new["mutable"] and old["mutable"] is not None and new["mutable"] is not None:
+            changes.append({
+                "type": "config_mutability_changed",
+                "name": name,
+                "config_type": old["type"],
+                "old_mutable": old["mutable"],
+                "new_mutable": new["mutable"],
                 "file": config_path,
             })
 
+    # Added configs
     trivial = {"0", "0L", "0L;", '""', "null", "{}"}
     for name in sorted(set(new_configs.keys()) - set(old_configs.keys())):
         val = new_configs[name]["value"].rstrip(";").rstrip("L").rstrip("f").rstrip("d")
         if val not in trivial and val != "0":
-            changes.append({
+            change = {
                 "type": "config_added",
                 "name": name,
                 "config_type": new_configs[name]["type"],
                 "default_value": new_configs[name]["value"],
                 "file": config_path,
-            })
+            }
+            if new_configs[name]["mutable"] is not None:
+                change["mutable"] = new_configs[name]["mutable"]
+            if new_configs[name]["comment"]:
+                change["comment"] = new_configs[name]["comment"]
+            changes.append(change)
+
+    # Removed configs (high risk — may break existing configurations)
+    for name in sorted(set(old_configs.keys()) - set(new_configs.keys())):
+        changes.append({
+            "type": "config_removed",
+            "name": name,
+            "config_type": old_configs[name]["type"],
+            "old_value": old_configs[name]["value"],
+            "deprecated": old_configs[name]["deprecated"],
+            "file": config_path,
+        })
 
     return changes
 
@@ -567,10 +1321,12 @@ def scan_type_system_changes(repo_path, branch_a, branch_b):
 def scan_incompatibilities(repo_path, branch_a, branch_b):
     """Scan the diff between branches for known incompatibility patterns.
 
-    Returns dict with categorized findings.
+    Runs all registered scanners and classifies findings by risk level.
+    Returns dict with categorized findings and unified impact assessment.
     """
     print(f"\n[INFO] Scanning for incompatibility patterns...", flush=True)
 
+    # Run the original scanners (config, type_system, mv)
     config_changes = scan_config_changes(repo_path, branch_a, branch_b)
     print(f"[INFO] Config changes: {len(config_changes)}", flush=True)
 
@@ -580,55 +1336,117 @@ def scan_incompatibilities(repo_path, branch_a, branch_b):
     mv_changes = scan_mv_changes(repo_path, branch_a, branch_b)
     print(f"[INFO] MV file changes: {mv_changes['summary']['total_mv_files_changed']}", flush=True)
     print(f"[INFO] MV high-risk changes: {mv_changes['summary']['high_risk_mv_changes']}", flush=True)
-    print(f"[INFO] MV refresh logic changes: {mv_changes['summary']['refresh_logic_changes']}", flush=True)
-    print(f"[INFO] MV rewrite logic changes: {mv_changes['summary']['rewrite_logic_changes']}", flush=True)
 
+    # Classify config changes using unified risk model
     high_risk_configs = []
     medium_risk_configs = []
     low_risk_configs = []
 
-    high_risk_names = {
-        "mysql_server_version", "transform_type_prefer_string_for_varchar",
-        "max_varchar_length", "enable_load_volume_from_conf",
-        "enable_alter_struct_column", "enable_rollback_default_warehouse",
-    }
-
     for change in config_changes:
         if change["type"] == "config_changed":
             name = change["name"]
-            if name in high_risk_names:
-                change["risk"] = "high"
-                high_risk_configs.append(change)
-            elif change["new_value"] in ("true", "false") and change["old_value"] in ("true", "false"):
-                change["risk"] = "medium"
-                medium_risk_configs.append(change)
-            else:
-                change["risk"] = "low"
-                low_risk_configs.append(change)
+            risk = _classify_config_risk(name, "config_changed", change.get("old_value"), change.get("new_value"))
+            # Immutable config default changes are higher risk (require restart, can't be changed at runtime)
+            if change.get("mutable") is False and risk == "low":
+                risk = "medium"
+            change["risk"] = risk
+            change["impact"] = _assess_impact(name)
         elif change["type"] == "config_added":
             name = change["name"]
-            if name in high_risk_names:
-                change["risk"] = "high"
-                high_risk_configs.append(change)
+            risk = _classify_config_risk(name, "config_added")
+            change["risk"] = risk
+            change["impact"] = _assess_impact(name)
+        elif change["type"] == "config_removed":
+            # Removed configs are always high risk — may break existing fe.conf
+            risk = "high"
+            change["risk"] = risk
+            change["impact"] = _assess_impact(change["name"])
+        elif change["type"] == "config_mutability_changed":
+            risk = "medium"
+            change["risk"] = risk
+            change["impact"] = {"data": False, "behavior": False, "operational": True, "rolling_upgrade": False}
+        else:
+            risk = change.get("risk", "low")
+
+        if risk == "high":
+            high_risk_configs.append(change)
+        elif risk == "medium":
+            medium_risk_configs.append(change)
+        else:
+            low_risk_configs.append(change)
+
+    # Run all additional scanners
+    scanner_results = {}
+    scanner_findings = []
+    scanners_skipped = []
+    scanners_run = []
+
+    for scanner_name, scanner_fn in _SCANNERS:
+        print(f"[INFO] Running scanner: {scanner_name}...", flush=True)
+        try:
+            findings = scanner_fn(repo_path, branch_a, branch_b)
+            if findings:
+                scanner_results[scanner_name] = findings
+                scanner_findings.extend(findings)
+                scanners_run.append(scanner_name)
+                print(f"[INFO]   {scanner_name}: {len(findings)} finding(s)", flush=True)
             else:
-                change["risk"] = "low"
-                low_risk_configs.append(change)
+                scanner_results[scanner_name] = []
+                scanners_run.append(scanner_name)
+                print(f"[INFO]   {scanner_name}: 0 findings", flush=True)
+        except Exception as e:
+            scanners_skipped.append({"name": scanner_name, "reason": str(e)})
+            scanner_results[scanner_name] = []
+            print(f"[WARN]   {scanner_name}: skipped ({e})", flush=True)
+
+    # Classify scanner findings by risk
+    for finding in scanner_findings:
+        risk = finding.get("risk", "low")
+        if risk == "critical":
+            high_risk_configs.append(finding)
+        elif risk == "high":
+            high_risk_configs.append(finding)
+        elif risk == "medium":
+            medium_risk_configs.append(finding)
+        else:
+            low_risk_configs.append(finding)
+
+    # Build unified summary
+    summary = {
+        "total_config_changes": len(config_changes),
+        "high_risk_configs": len(high_risk_configs),
+        "medium_risk_configs": len(medium_risk_configs),
+        "low_risk_configs": len(low_risk_configs),
+        "type_system_changes": len(type_changes),
+        "mv_files_changed": mv_changes["summary"]["total_mv_files_changed"],
+        "mv_high_risk": mv_changes["summary"]["high_risk_mv_changes"],
+        "mv_refresh_changes": mv_changes["summary"]["refresh_logic_changes"],
+        "mv_rewrite_changes": mv_changes["summary"]["rewrite_logic_changes"],
+        "total_scanner_findings": len(scanner_findings),
+        "scanners_run": scanners_run,
+        "scanners_skipped": [s["name"] for s in scanners_skipped],
+        "findings_by_scanner": {name: len(finds) for name, finds in scanner_results.items() if finds},
+        "findings_by_risk": {
+            "critical": len([f for f in scanner_findings if f.get("risk") == "critical"]),
+            "high": len([f for f in scanner_findings if f.get("risk") == "high"]),
+            "medium": len([f for f in scanner_findings if f.get("risk") == "medium"]),
+            "low": len([f for f in scanner_findings if f.get("risk") == "low"]),
+        },
+        "findings_by_impact": {
+            "data": len([f for f in scanner_findings if f.get("impact", {}).get("data")]),
+            "behavior": len([f for f in scanner_findings if f.get("impact", {}).get("behavior")]),
+            "operational": len([f for f in scanner_findings if f.get("impact", {}).get("operational")]),
+            "rolling_upgrade": len([f for f in scanner_findings if f.get("impact", {}).get("rolling_upgrade")]),
+        },
+    }
 
     result = {
         "config_changes": config_changes,
         "type_system_changes": type_changes,
         "mv_changes": mv_changes,
-        "summary": {
-            "total_config_changes": len(config_changes),
-            "high_risk_configs": len(high_risk_configs),
-            "medium_risk_configs": len(medium_risk_configs),
-            "low_risk_configs": len(low_risk_configs),
-            "type_system_changes": len(type_changes),
-            "mv_files_changed": mv_changes["summary"]["total_mv_files_changed"],
-            "mv_high_risk": mv_changes["summary"]["high_risk_mv_changes"],
-            "mv_refresh_changes": mv_changes["summary"]["refresh_logic_changes"],
-            "mv_rewrite_changes": mv_changes["summary"]["rewrite_logic_changes"],
-        },
+        "scanner_findings": scanner_findings,
+        "scanner_results": scanner_results,
+        "summary": summary,
         "high_risk": high_risk_configs + [
             tc for tc in type_changes
             if tc["pattern"] in ("varchar_type_handling", "column_comparison")
@@ -739,12 +1557,80 @@ def run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, fetch_prs
     incompatibilities = scan_incompatibilities(repo_path, branch_a, branch_b)
     save_json(incompatibilities, os.path.join(output_dir, "incompatibilities.json"))
     inc_summary = incompatibilities["summary"]
-    print(f"[INFO] Incompatibilities found: {inc_summary['high_risk_configs']} high-risk config changes, "
-          f"{inc_summary['type_system_changes']} type system changes")
+    print(f"[INFO] Incompatibilities found: {inc_summary['high_risk_configs']} high-risk, "
+          f"{inc_summary['medium_risk_configs']} medium-risk, "
+          f"{inc_summary['low_risk_configs']} low-risk")
+    print(f"[INFO] Scanner findings: {inc_summary.get('total_scanner_findings', 0)} across "
+          f"{len(inc_summary.get('scanners_run', []))} scanner(s)")
 
-    if incompatibilities["high_risk"]:
-        print(f"\n[WARN] High-risk incompatibilities detected:")
-        for item in incompatibilities["high_risk"]:
+    # Print scanner findings grouped by risk level
+    scanner_findings = incompatibilities.get("scanner_findings", [])
+    if scanner_findings:
+        critical_findings = [f for f in scanner_findings if f.get("risk") == "critical"]
+        high_findings = [f for f in scanner_findings if f.get("risk") == "high"]
+        medium_findings = [f for f in scanner_findings if f.get("risk") == "medium"]
+
+        if critical_findings:
+            print(f"\n[CRITICAL] {len(critical_findings)} critical compatibility finding(s):")
+            for item in critical_findings:
+                impact = item.get("impact", {})
+                impact_tags = []
+                if impact.get("data"): impact_tags.append("DATA")
+                if impact.get("behavior"): impact_tags.append("BEHAVIOR")
+                if impact.get("operational"): impact_tags.append("OPS")
+                if impact.get("rolling_upgrade"): impact_tags.append("ROLLING-UPGRADE")
+                tag_str = f" [{', '.join(impact_tags)}]" if impact_tags else ""
+                print(f"  [{item['type'].upper()}] {item.get('name', item.get('file', ''))}{tag_str}")
+                if item.get("old_value") and item.get("new_value"):
+                    print(f"    {item['old_value']} -> {item['new_value']}")
+                elif item.get("detail"):
+                    print(f"    {item['detail']}")
+
+        if high_findings:
+            print(f"\n[HIGH] {len(high_findings)} high-risk finding(s):")
+            for item in high_findings:
+                impact = item.get("impact", {})
+                impact_tags = []
+                if impact.get("data"): impact_tags.append("DATA")
+                if impact.get("behavior"): impact_tags.append("BEHAVIOR")
+                if impact.get("operational"): impact_tags.append("OPS")
+                if impact.get("rolling_upgrade"): impact_tags.append("ROLLING-UPGRADE")
+                tag_str = f" [{', '.join(impact_tags)}]" if impact_tags else ""
+                print(f"  [{item['type'].upper()}] {item.get('name', item.get('file', ''))}{tag_str}")
+                if item.get("old_value") and item.get("new_value"):
+                    print(f"    {item['old_value']} -> {item['new_value']}")
+                elif item.get("detail"):
+                    print(f"    {item['detail']}")
+
+        if medium_findings:
+            print(f"\n[MEDIUM] {len(medium_findings)} medium-risk finding(s)")
+            for item in medium_findings[:5]:
+                print(f"  [{item['type'].upper()}] {item.get('name', item.get('file', ''))}")
+            if len(medium_findings) > 5:
+                print(f"  ... and {len(medium_findings) - 5} more")
+
+    # Print impact summary
+    impact_summary = inc_summary.get("findings_by_impact", {})
+    if any(v > 0 for v in impact_summary.values()):
+        print(f"\n[IMPACT SUMMARY]")
+        if impact_summary.get("data"): print(f"  Data impact: {impact_summary['data']} finding(s) may affect existing data")
+        if impact_summary.get("behavior"): print(f"  Behavior impact: {impact_summary['behavior']} finding(s) may change query results")
+        if impact_summary.get("operational"): print(f"  Operational impact: {impact_summary['operational']} finding(s) require config/ops changes")
+        if impact_summary.get("rolling_upgrade"): print(f"  Rolling upgrade impact: {impact_summary['rolling_upgrade']} finding(s) may break mixed-version clusters")
+
+    # Print skipped scanners
+    skipped = inc_summary.get("scanners_skipped", [])
+    if skipped:
+        print(f"\n[WARN] Scanners skipped: {', '.join(skipped)}")
+
+    # Legacy high-risk items (config, type system)
+    legacy_high_risk = [
+        item for item in incompatibilities["high_risk"]
+        if item.get("type") in ("config_changed", "config_added", "type_system_change")
+    ]
+    if legacy_high_risk:
+        print(f"\n[WARN] Additional high-risk incompatibilities:")
+        for item in legacy_high_risk:
             if item.get("type") in ("config_changed", "config_added"):
                 if item["type"] == "config_changed":
                     print(f"  [CONFIG] {item['name']}: {item['old_value']} -> {item['new_value']}")
