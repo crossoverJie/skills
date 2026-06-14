@@ -583,6 +583,255 @@ def _diff_changed_lines(diff):
     return added, removed
 
 
+# ---------------------------------------------------------------------------
+# Commit tier classification
+# ---------------------------------------------------------------------------
+
+HIGH_TIER_PATHS = [
+    # FE core
+    "fe/fe-core/src/main/java/com/starrocks/sql/optimizer/",
+    "fe/fe-core/src/main/java/com/starrocks/planner/",
+    "fe/fe-core/src/main/java/com/starrocks/execution/",
+    "fe/fe-core/src/main/java/com/starrocks/catalog/",
+    "fe/fe-core/src/main/java/com/starrocks/analysis/",
+    "fe/fe-core/src/main/java/com/starrocks/sql/ast/",
+    "fe/fe-core/src/main/java/com/starrocks/qe/",
+    "fe/fe-core/src/main/java/com/starrocks/service/",
+    "fe/fe-core/src/main/java/com/starrocks/transaction/",
+    "fe/fe-core/src/main/java/com/starrocks/load/",
+    "fe/fe-core/src/main/java/com/starrocks/alter/",
+    "fe/fe-core/src/main/java/com/starrocks/persist/",
+    # BE core
+    "be/src/runtime/",
+    "be/src/storage/",
+    "be/src/service/",
+    "be/src/http/",
+    "be/src/agent/",
+    # Protocol/IDL
+    "gensrc/proto/",
+    "gensrc/thrift/",
+    # MV (exact file names)
+]
+
+HIGH_TIER_FILE_PATTERNS = [
+    "MaterializedView.java",
+    "MaterializedViewMeta.java",
+    "MaterializedViewRefresh*.java",
+    "MVRefresh*.java",
+    "MaterializedViewRewriter.java",
+    "MaterializedViewHandler.java",
+    "Column.java",
+    "ScalarType.java",
+    "Type.java",
+    "SchemaChangeJob.java",
+    "AlterJob.java",
+    "AlterJobMgr.java",
+    "GlobalStateMgr.java",
+    "StorageEngine.java",
+]
+
+MEDIUM_TIER_PATHS = [
+    "fe/fe-core/src/main/java/com/starrocks/connector/",
+    "fe/fe-core/src/main/java/com/starrocks/authentication/",
+    "fe/fe-core/src/main/java/com/starrocks/privilege/",
+    "fe/fe-core/src/main/java/com/starrocks/sql/parser/",
+    "fe/fe-core/src/main/java/com/starrocks/catalog/",
+    "fe/fe-core/src/main/java/com/starrocks/scheduler/",
+    "fe/fe-core/src/main/java/com/starrocks/monitor/",
+    "fe/fe-core/src/main/java/com/starrocks/common/",
+    "be/src/util/",
+    "be/src/exprs/",
+    "be/src/column/",
+    "be/src/http/",
+    "be/src/gutil/",
+    "be/src/connector/",
+]
+
+SKIP_TIER_PATHS = [
+    "fe/fe-core/src/test/",
+    "be/src/test/",
+    "testlibs/",
+    "docs/",
+    ".github/",
+    "community/",
+    "contrib/",
+]
+
+SKIP_TIER_PREFIXES = [
+    "build",
+    "chore",
+    "ci",
+    "style",
+    "revert",
+]
+
+
+def _matches_path(filepath, path_list):
+    """Check if filepath matches any prefix in path_list."""
+    for p in path_list:
+        if filepath.startswith(p) or f"/{p}" in filepath:
+            return True
+    return False
+
+
+def _matches_file_pattern(filepath, pattern_list):
+    """Check if filepath's basename matches any glob pattern in pattern_list."""
+    import fnmatch
+    basename = os.path.basename(filepath)
+    for p in pattern_list:
+        if fnmatch.fnmatch(basename, p):
+            return True
+    return False
+
+
+def classify_commit_tier(commit, changed_files=None):
+    """Classify a commit into a risk tier based on changed file paths and commit type.
+
+    Returns (tier, tier_reason) where tier is HIGH/MEDIUM/LOW/SKIP.
+    """
+    if changed_files is None:
+        changed_files = []
+
+    subject = commit.get("subject", "")
+
+    # Check SKIP first — test/docs/build commits
+    prefix_pattern = re.compile(r"^(\w+)(?:\(.*?\))?(!)?:\s")
+    match = prefix_pattern.match(subject)
+    prefix = match.group(1).lower() if match else ""
+
+    if prefix in SKIP_TIER_PREFIXES:
+        return "SKIP", f"commit type: {prefix}"
+
+    # If all changed files are in skip paths, skip the commit
+    if changed_files and all(_matches_path(f, SKIP_TIER_PATHS) for f in changed_files):
+        non_test = [f for f in changed_files if not _matches_path(f, SKIP_TIER_PATHS)]
+        if not non_test:
+            return "SKIP", "all changed files in skip paths (test/docs/build)"
+
+    # Check HIGH tier
+    high_reasons = []
+    for filepath in changed_files:
+        if _matches_path(filepath, HIGH_TIER_PATHS):
+            matched = [p for p in HIGH_TIER_PATHS if filepath.startswith(p) or f"/{p}" in filepath]
+            high_reasons.append(f"core path: {matched[0]}")
+        if _matches_file_pattern(filepath, HIGH_TIER_FILE_PATTERNS):
+            high_reasons.append(f"critical file: {os.path.basename(filepath)}")
+
+    if high_reasons:
+        return "HIGH", "; ".join(set(high_reasons))
+
+    # Check MEDIUM tier
+    medium_reasons = []
+    for filepath in changed_files:
+        if _matches_path(filepath, MEDIUM_TIER_PATHS):
+            matched = [p for p in MEDIUM_TIER_PATHS if filepath.startswith(p) or f"/{p}" in filepath]
+            medium_reasons.append(f"business path: {matched[0]}")
+
+    # feat/fix in any Java/C++ file is at least MEDIUM
+    if prefix in ("feat", "fix") and changed_files:
+        has_source = any(f.endswith((".java", ".cpp", ".h", ".py", ".scala")) for f in changed_files)
+        if has_source:
+            medium_reasons.append(f"feat/fix with source code changes")
+
+    if medium_reasons:
+        return "MEDIUM", "; ".join(set(medium_reasons))
+
+    return "LOW", "non-core or infrastructure change"
+
+
+def get_commit_changed_files(repo_path, commit_hash):
+    """Get the list of files changed by a commit via git show --stat."""
+    output = run_cmd(
+        ["git", "show", "--stat", "--format=", commit_hash],
+        cwd=repo_path, check=False, timeout=30,
+    )
+    if not output:
+        return []
+
+    files = []
+    for line in output.strip().split("\n"):
+        line = line.strip()
+        if not line or "file changed" in line or "files changed" in line:
+            continue
+        parts = line.split("|")
+        if len(parts) >= 2:
+            filepath = parts[0].strip()
+            if filepath:
+                files.append(filepath)
+    return files
+
+
+def get_commit_diff(repo_path, commit_hash, max_lines=2000):
+    """Get the full diff for a commit, truncated at max_lines."""
+    output = run_cmd(
+        ["git", "show", "--format=", commit_hash],
+        cwd=repo_path, check=False, timeout=30,
+    )
+    if not output:
+        return None
+
+    lines = output.split("\n")
+    if len(lines) > max_lines:
+        return "\n".join(lines[:max_lines]) + f"\n... (truncated, {len(lines)} total lines)"
+    return output
+
+
+def classify_and_save_commits(repo_path, commits, output_dir, branch_label, skip_diff=False, diff_stat_only=False):
+    """Classify commits into tiers and save per-commit metadata and diffs.
+
+    Returns dict with tier statistics and list of commit meta dicts.
+    """
+    tier_counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "SKIP": 0}
+    commit_metas = []
+    detail_dir = os.path.join(output_dir, "commits", "detail")
+
+    for i, commit in enumerate(commits):
+        hash_val = commit["hash"]
+        print(f"[INFO] Classifying commit {i+1}/{len(commits)}: {hash_val[:8]} {commit['subject'][:60]}...",
+              end="", flush=True)
+
+        changed_files = get_commit_changed_files(repo_path, hash_val)
+        tier, tier_reason = classify_commit_tier(commit, changed_files)
+        tier_counts[tier] += 1
+
+        meta = {
+            "hash": hash_val,
+            "subject": commit["subject"],
+            "author": commit.get("author", ""),
+            "date": commit.get("date", ""),
+            "pr_numbers": commit.get("pr_numbers", []),
+            "tier": tier,
+            "tier_reason": tier_reason,
+            "changed_files": changed_files,
+        }
+
+        # Save diff for HIGH/MEDIUM commits
+        if tier in ("HIGH", "MEDIUM") and not skip_diff:
+            if not diff_stat_only:
+                diff_content = get_commit_diff(repo_path, hash_val)
+                if diff_content:
+                    diff_path = os.path.join(detail_dir, f"{hash_val}-diff.txt")
+                    os.makedirs(detail_dir, exist_ok=True)
+                    with open(diff_path, "w", encoding="utf-8") as f:
+                        f.write(diff_content)
+                    meta["diff_file"] = f"detail/{hash_val}-diff.txt"
+
+        commit_metas.append(meta)
+        print(f" [{tier}]")
+
+    # Save all commit metas
+    meta_path = os.path.join(output_dir, "commits", f"tiered-{branch_label}.json")
+    os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+    save_json(commit_metas, meta_path)
+
+    return {
+        "tier_counts": tier_counts,
+        "commit_metas": commit_metas,
+        "high_medium_commits": [m for m in commit_metas if m["tier"] in ("HIGH", "MEDIUM")],
+        "meta_file": f"commits/tiered-{branch_label}.json",
+    }
+
+
 def _scan_files_diff(repo_path, branch_a, branch_b, file_patterns):
     """Find changed files matching patterns and return their diffs.
 
@@ -1469,10 +1718,283 @@ def save_json(data, filepath):
 
 
 # ---------------------------------------------------------------------------
+# Cluster profile and config conflict detection
+# ---------------------------------------------------------------------------
+
+def parse_conf_content(content):
+    """Parse fe.conf or be.conf content into a dict of {key: value}.
+
+    Handles: # comments, empty lines, KEY = VALUE / KEY=VALUE, quoted values,
+    values containing = signs (e.g. JAVA_OPTS = "-Xmx8192m").
+    """
+    if not content:
+        return {}
+    result = {}
+    for line in content.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        idx = line.index("=")
+        key = line[:idx].strip()
+        value = line[idx + 1:].strip()
+        if key:
+            result[key] = value
+    return result
+
+
+def _normalize_conf_value(value):
+    """Normalize a config value for comparison.
+
+    Strips quotes, semicolons, Java type suffixes (L/f/d), and whitespace.
+    """
+    if not value:
+        return ""
+    v = value.strip()
+    v = v.rstrip(";").strip()
+    v = v.rstrip("L").rstrip("f").rstrip("d").rstrip()
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        v = v[1:-1]
+    return v.strip()
+
+
+def load_cluster_profile(path):
+    """Load cluster profile from YAML file.
+
+    Returns dict with cluster info and parsed fe_conf/be_conf.
+    Returns None if file doesn't exist or pyyaml is not available.
+    """
+    if not os.path.isfile(path):
+        print(f"[INFO] Cluster profile not found at {path}", file=sys.stderr)
+        return None
+
+    try:
+        import yaml
+    except ImportError:
+        print(f"[WARN] PyYAML not installed — cluster profile loading skipped. "
+              f"Install with: pip install pyyaml", file=sys.stderr)
+        return None
+
+    with open(path, "r", encoding="utf-8") as f:
+        profile = yaml.safe_load(f)
+
+    if not profile or not isinstance(profile, dict):
+        print(f"[WARN] Cluster profile is empty or invalid", file=sys.stderr)
+        return None
+
+    fe_conf_raw = profile.get("fe_conf", "") or ""
+    be_conf_raw = profile.get("be_conf", "") or ""
+
+    profile["fe_conf_parsed"] = parse_conf_content(fe_conf_raw)
+    profile["be_conf_parsed"] = parse_conf_content(be_conf_raw)
+
+    cluster = profile.get("cluster", {})
+    name = cluster.get("name", "unknown")
+    deployment = cluster.get("deployment", "vm")
+    scale = cluster.get("scale", {})
+    print(f"[INFO] Cluster profile loaded: {name}, deployment={deployment}, "
+          f"fe_conf={len(profile['fe_conf_parsed'])} items, "
+          f"be_conf={len(profile['be_conf_parsed'])} items"
+          + (f", scale: {scale.get('tables', '?')} tables, {scale.get('mvs', '?')} MVs"
+             if scale else ""))
+
+    return profile
+
+
+def check_config_conflicts(profile, incompatibilities):
+    """Check user's fe.conf/be.conf against scanner findings.
+
+    Returns dict with config conflicts, deployment risks, and scale assessment.
+    """
+    if not profile:
+        return None
+
+    fe_conf = profile.get("fe_conf_parsed", {})
+    be_conf = profile.get("be_conf_parsed", {})
+    cluster = profile.get("cluster", {})
+    deployment = cluster.get("deployment", "vm")
+    scale = cluster.get("scale", {})
+
+    conflicts = []
+
+    config_changes = incompatibilities.get("config_changes", [])
+    scanner_findings = incompatibilities.get("scanner_findings", [])
+
+    all_findings = list(config_changes) + list(scanner_findings)
+
+    for change in all_findings:
+        name = change.get("name", "")
+        change_type = change.get("type", "")
+        file_path = change.get("file", "")
+        is_fe = "Config.java" in file_path or "SessionVariable" in file_path or "GlobalVariable" in file_path
+        is_be = "config.h" in file_path
+
+        user_conf = fe_conf if is_fe else (be_conf if is_be else None)
+        conf_label = "fe_conf" if is_fe else ("be_conf" if is_be else None)
+
+        if not user_conf or not conf_label:
+            continue
+
+        # Removed configs that exist in user's conf
+        if change_type in ("config_removed", "be_config_removed",
+                           "session_var_removed", "system_var_removed"):
+            if name in user_conf:
+                conflicts.append({
+                    "type": "removed_config_in_conf",
+                    "config_name": name,
+                    "conf_source": conf_label,
+                    "current_value": user_conf[name],
+                    "risk": "high",
+                    "recommendation": (f"Remove '{name}' from your conf — this config no longer exists "
+                                       f"and may cause startup warnings/errors"),
+                })
+
+        # Default value changed
+        elif change_type in ("config_changed", "be_config_changed",
+                             "session_var_changed", "system_var_changed"):
+            old_default = _normalize_conf_value(change.get("old_value", ""))
+            new_default = _normalize_conf_value(change.get("new_value", ""))
+
+            if name in user_conf:
+                current_value = _normalize_conf_value(user_conf[name])
+
+                if current_value == old_default:
+                    conflicts.append({
+                        "type": "config_changed_using_old_default",
+                        "config_name": name,
+                        "conf_source": conf_label,
+                        "old_default": change.get("old_value", ""),
+                        "new_default": change.get("new_value", ""),
+                        "current_in_conf": user_conf[name],
+                        "risk": "medium",
+                        "recommendation": (f"'{name}' in your conf matches the old default. "
+                                           f"Decide whether to adopt the new default or keep your override."),
+                    })
+                else:
+                    conflicts.append({
+                        "type": "config_changed_custom_override",
+                        "config_name": name,
+                        "conf_source": conf_label,
+                        "old_default": change.get("old_value", ""),
+                        "new_default": change.get("new_value", ""),
+                        "current_in_conf": user_conf[name],
+                        "risk": "low",
+                        "recommendation": (f"'{name}' has a custom value in your conf — "
+                                           f"your override takes precedence."),
+                    })
+            else:
+                change_risk = change.get("risk", "low")
+                if change_risk in ("high", "critical"):
+                    conflicts.append({
+                        "type": "config_changed_no_override",
+                        "config_name": name,
+                        "conf_source": conf_label,
+                        "old_default": change.get("old_value", ""),
+                        "new_default": change.get("new_value", ""),
+                        "current_in_conf": None,
+                        "risk": change_risk,
+                        "recommendation": (f"'{name}' default changes and you don't override it. "
+                                           f"Add it to your conf if you need the old behavior."),
+                    })
+
+    # Deployment-specific risks
+    deployment_risks = []
+    mv_summary = incompatibilities.get("mv_changes", {}).get("summary", {})
+    mv_files_changed = mv_summary.get("total_mv_files_changed", 0)
+
+    if deployment == "k8s":
+        if mv_files_changed > 0:
+            deployment_risks.append({
+                "deployment": "k8s",
+                "risk": "FE pod restart triggers MV re-activation; MV code changes detected",
+                "detail": ("K8s rolling upgrade restarts FE pods one by one. Each restart triggers "
+                           "AlterJobMgr.java MV re-activation which re-parses MV CREATE SQL. "
+                           "MV code changes may cause schema compatibility check failures."),
+                "severity": "high",
+            })
+
+        protocol_findings = [f for f in scanner_findings
+                             if f.get("type") in ("protocol_field_removed", "protocol_required_field_added")]
+        if protocol_findings:
+            deployment_risks.append({
+                "deployment": "k8s",
+                "risk": "Protocol changes — mixed-version pods may fail",
+                "detail": ("Rolling upgrade creates mixed-version clusters. Protocol changes "
+                           "can cause FE-BE communication failures between old and new pods."),
+                "severity": "critical",
+            })
+
+        restart_sensitive = [c for c in conflicts
+                             if c["risk"] == "high" and c["type"] == "removed_config_in_conf"]
+        if restart_sensitive:
+            deployment_risks.append({
+                "deployment": "k8s",
+                "risk": (f"{len(restart_sensitive)} removed config(s) in your conf "
+                         f"will cause issues on pod restart"),
+                "detail": "Removed configs in fe.conf/be.conf may cause startup errors when pods restart.",
+                "severity": "high",
+            })
+
+    elif deployment == "vm":
+        protocol_findings = [f for f in scanner_findings
+                             if f.get("type") in ("protocol_field_removed", "protocol_required_field_added")]
+        if protocol_findings:
+            deployment_risks.append({
+                "deployment": "vm",
+                "risk": "Protocol changes — upgrade all BE first, then FE",
+                "detail": ("VM deployments should follow the correct upgrade order: upgrade all BE nodes first, "
+                           "then FE nodes. Protocol changes require careful version ordering."),
+                "severity": "high",
+            })
+
+    # Scale-aware assessment
+    scale_assessment = {}
+    mv_count = scale.get("mvs", 0)
+    table_count = scale.get("tables", 0)
+    has_async_mv = scale.get("has_async_mv", False)
+    has_sync_mv = scale.get("has_sync_mv", False)
+
+    if mv_count > 0:
+        mv_risk_level = "high" if mv_count > 50 else ("medium" if mv_count > 10 else "low")
+        scale_assessment["mv_risk"] = {
+            "level": mv_risk_level,
+            "mv_count": mv_count,
+            "has_async_mv": has_async_mv,
+            "has_sync_mv": has_sync_mv,
+            "reason": (f"Cluster has {mv_count} MVs — "
+                       f"{'any MV compatibility issue affects significant workload' if mv_count > 50 else 'moderate MV exposure'}"),
+        }
+
+    if table_count > 0:
+        scale_assessment["data_risk"] = {
+            "table_count": table_count,
+            "reason": f"Cluster has {table_count} tables — storage format changes affect data accessibility",
+        }
+
+    return {
+        "profile_loaded": True,
+        "cluster": cluster,
+        "config_conflicts": conflicts,
+        "deployment_risks": deployment_risks,
+        "scale_assessment": scale_assessment,
+        "conflict_summary": {
+            "total_conflicts": len(conflicts),
+            "high_risk": len([c for c in conflicts if c["risk"] == "high"]),
+            "medium_risk": len([c for c in conflicts if c["risk"] == "medium"]),
+            "low_risk": len([c for c in conflicts if c["risk"] == "low"]),
+            "deployment_risks": len(deployment_risks),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
 
-def run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, fetch_prs=False):
+def run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, fetch_prs=False,
+                            skip_diff_detail=False, diff_stat_only=False,
+                            cluster_profile_path=None):
     """Run in branch compare mode: diff two local branches via commit log.
 
     No GitHub release notes are fetched — comparison is purely based on
@@ -1514,6 +2036,28 @@ def run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, fetch_prs
     # Categorize commits
     categories_b = categorize_commits(only_in_b)
     categories_a = categorize_commits(only_in_a)
+
+    # Classify commits into risk tiers and save per-commit diffs
+    print(f"\n[INFO] Classifying commits into risk tiers...")
+    tier_result_b = classify_and_save_commits(
+        repo_path, only_in_b, output_dir,
+        branch_b.replace('/', '_'), skip_diff=skip_diff_detail, diff_stat_only=diff_stat_only,
+    )
+    print(f"[INFO] Tier distribution ({branch_b}): "
+          f"HIGH={tier_result_b['tier_counts']['HIGH']}, "
+          f"MEDIUM={tier_result_b['tier_counts']['MEDIUM']}, "
+          f"LOW={tier_result_b['tier_counts']['LOW']}, "
+          f"SKIP={tier_result_b['tier_counts']['SKIP']}")
+
+    tier_result_a = classify_and_save_commits(
+        repo_path, only_in_a, output_dir,
+        branch_a.replace('/', '_'), skip_diff=skip_diff_detail, diff_stat_only=diff_stat_only,
+    )
+    print(f"[INFO] Tier distribution ({branch_a}): "
+          f"HIGH={tier_result_a['tier_counts']['HIGH']}, "
+          f"MEDIUM={tier_result_a['tier_counts']['MEDIUM']}, "
+          f"LOW={tier_result_a['tier_counts']['LOW']}, "
+          f"SKIP={tier_result_a['tier_counts']['SKIP']}")
 
     # Optionally fetch PR details from GitHub
     pr_details = {}
@@ -1562,6 +2106,24 @@ def run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, fetch_prs
           f"{inc_summary['low_risk_configs']} low-risk")
     print(f"[INFO] Scanner findings: {inc_summary.get('total_scanner_findings', 0)} across "
           f"{len(inc_summary.get('scanners_run', []))} scanner(s)")
+
+    # Load cluster profile and check config conflicts
+    profile = None
+    config_conflict_result = None
+    if cluster_profile_path:
+        print(f"\n[INFO] Loading cluster profile from {cluster_profile_path}...", flush=True)
+        profile = load_cluster_profile(cluster_profile_path)
+        if profile:
+            config_conflict_result = check_config_conflicts(profile, incompatibilities)
+            save_json(config_conflict_result,
+                      os.path.join(output_dir, "cluster-config-conflicts.json"))
+            cs = config_conflict_result["conflict_summary"]
+            print(f"[INFO] Config conflicts: {cs['high_risk']} high, "
+                  f"{cs['medium_risk']} medium, {cs['low_risk']} low")
+            if config_conflict_result["deployment_risks"]:
+                print(f"[INFO] Deployment-specific risks: {len(config_conflict_result['deployment_risks'])}")
+        else:
+            print(f"[INFO] No cluster profile loaded — skipping config conflict detection")
 
     # Print scanner findings grouped by risk level
     scanner_findings = incompatibilities.get("scanner_findings", [])
@@ -1700,8 +2262,23 @@ def run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, fetch_prs
         "pr_only_in_a": sorted(pr_numbers_a - pr_numbers_b),
         "pr_common": sorted(pr_numbers_a & pr_numbers_b),
         "categories_in_b": {k: len(v) for k, v in categories_b.items() if v},
+        "commit_tier_summary": {
+            "branch_b": tier_result_b["tier_counts"],
+            "branch_a": tier_result_a["tier_counts"],
+            "high_medium_commits_in_b": len(tier_result_b["high_medium_commits"]),
+            "high_medium_commits_in_a": len(tier_result_a["high_medium_commits"]),
+            "tiered_meta_files": [tier_result_b["meta_file"], tier_result_a["meta_file"]],
+        },
         "release_notes": rn_summary,
         "incompatibilities": incompatibilities["summary"],
+        "cluster_profile": {
+            "loaded": profile is not None,
+            "cluster_name": cluster.get("name") if profile else None,
+            "deployment": cluster.get("deployment") if profile else None,
+            "config_conflicts": config_conflict_result["conflict_summary"] if config_conflict_result else None,
+            "deployment_risks_count": len(config_conflict_result["deployment_risks"]) if config_conflict_result else 0,
+            "scale_assessment": config_conflict_result["scale_assessment"] if config_conflict_result else None,
+        } if profile else None,
         "fetch_prs": fetch_prs,
         "pr_details_fetched": len(pr_details),
         "collected_at": datetime.now().isoformat(),
@@ -1740,6 +2317,12 @@ Examples:
 
   # With full PR details from GitHub (slow for many PRs)
   python3 starrocks_upgrade.py --against 3.3.16-cj-0708 --fetch-prs
+
+  # Quick mode: skip per-commit diff generation for faster run
+  python3 starrocks_upgrade.py --against 3.3.16-cj-0708 --skip-diff-detail
+
+  # Preview mode: only save diff stat per commit, not full diffs
+  python3 starrocks_upgrade.py --against 3.3.16-cj-0708 --diff-stat-only
         """,
     )
     parser.add_argument(
@@ -1765,6 +2348,18 @@ Examples:
     parser.add_argument(
         "--output", default="./upgrade-report",
         help="Output directory (default: ./upgrade-report)"
+    )
+    parser.add_argument(
+        "--skip-diff-detail", action="store_true",
+        help="Skip per-commit diff generation (faster, but no commit-level diff analysis possible)"
+    )
+    parser.add_argument(
+        "--diff-stat-only", action="store_true",
+        help="Only save --stat per commit, not full diff (quick preview mode)"
+    )
+    parser.add_argument(
+        "--cluster-profile",
+        help="Path to cluster profile YAML (cluster config, fe.conf/be.conf, scale info)"
     )
 
     args = parser.parse_args()
@@ -1806,7 +2401,11 @@ Examples:
         branch_a = args.branch_a
         branch_b = args.branch_b
 
-    run_branch_compare_mode(repo_path, branch_a, branch_b, output_dir, args.fetch_prs)
+    run_branch_compare_mode(
+        repo_path, branch_a, branch_b, output_dir, args.fetch_prs,
+        skip_diff_detail=args.skip_diff_detail, diff_stat_only=args.diff_stat_only,
+        cluster_profile_path=args.cluster_profile,
+    )
 
 
 if __name__ == "__main__":
