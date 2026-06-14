@@ -1,0 +1,4 @@
+# Core: uses Python standard library only
+# Optional: PyYAML (needed for --cluster-profile)
+#   Install with: pip install pyyaml
+pyyaml

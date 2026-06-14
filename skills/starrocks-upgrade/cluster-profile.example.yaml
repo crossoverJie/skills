@@ -1,0 +1,40 @@
+# Cluster Profile for StarRocks Upgrade Analysis
+# Copy this file to cluster-profile.yaml and fill in your cluster details.
+# The agent can also assemble this from conversation — just provide the info
+# and it will create the file for you.
+#
+# Usage:
+#   python3 starrocks_upgrade.py --against <base> --cluster-profile skills/starrocks-upgrade/cluster-profile.yaml
+
+cluster:
+  name: prod-cn-east              # Cluster identifier (for report labeling)
+  deployment: k8s                 # k8s | vm | mixed
+  scale:
+    fe_nodes: 3                   # Number of FE nodes
+    be_nodes: 12                  # Number of BE nodes
+    tables: 800                   # Approximate table count
+    mvs: 120                      # Approximate MV count
+    has_async_mv: true            # Whether async MVs are in use
+    has_sync_mv: true             # Whether sync MVs (rollup) are in use
+
+# Paste the full fe.conf content from your production FE node.
+# The tool parses this to detect config conflicts with the new version.
+fe_conf: |
+  LOG_DIR = ${STARROCKS_HOME}/log
+  DATE = %Y%m%d-%H%M%S
+  # JAVA_OPTS
+  JAVA_OPTS = "-Xmx8192m -XX:+UseG1GC"
+  mysql_server_version = 5.1.0
+  metadata_failure_recovery = false
+  # Example: if you override a high-risk config
+  # transform_type_prefer_string_for_varchar = true
+
+# Paste the full be.conf content from your production BE node.
+be_conf: |
+  LOG_DIR = ${STARROCKS_HOME}/log
+  sys_log_level = INFO
+  storage_root_path = /data/starrocks/storage
+  mem_limit = 0.8
+  max_tablet_version_count = 5000
+  # Example: if you override a high-risk config
+  # chunk_reserved_bytes_limit = 2147483648
