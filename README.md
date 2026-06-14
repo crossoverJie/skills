@@ -6,11 +6,13 @@ A collection of useful skills for AI agents (like Claude Code/ Codex/ GitHub Cop
 
 | Skill | Description | Screenshot |
 |-------|-------------|------------|
-| [Image Uploader](skills/image-uploader/SKILL.md) | Upload local images to cloud hosting (sm.ms) and get public URLs | |
+| [Image Uploader](skills/image-uploader/SKILL.md) | Upload local images to cloud hosting (sm.ms, Imgur, GitHub+jsDelivr CDN) and get public URLs | |
 | [Cover Generator](skills/cover-generator/SKILL.md) | Generate gradient-based cover images (1200x630) with custom title, subtitle, and theme | |
 | [Auto Blog Cover](skills/auto-blog-cover/SKILL.md) | End-to-end blog cover automation: parse markdown frontmatter, generate cover, upload, and update fields | |
 | [Session Export](skills/session-export/SKILL.md) | Export AI chat sessions to readable Markdown files with optional summarization | |
-| [Agent Notifier](skills/agent-notifier/SKILL.md) | Multi-channel notifications (sound, macOS alert, Telegram, Email, Slack, Discord) when your AI agent needs input or finishes a task |![notifier.png](img/notifier.png) |
+| [Agent Notifier](skills/agent-notifier/SKILL.md) | Multi-channel notifications (sound, macOS alert, Telegram, Email, Slack, Discord, DingTalk) when your AI agent needs input or finishes a task |![notifier.png](img/notifier.png) |
+| [ClipShelf](skills/clipshelf/SKILL.md) | CLI to query, add, tag, and delete clipboard entries via the ClipShelf clipboard manager | |
+| [StarRocks Upgrade](skills/starrocks-upgrade/SKILL.md) | StarRocks upgrade comparison tool with 11 compatibility scanners and four-phase parallel analysis | |
 
 
 ## Installation
@@ -31,6 +33,8 @@ npx skills add crossoverJie/skills@cover-generator
 npx skills add crossoverJie/skills@auto-blog-cover
 npx skills add crossoverJie/skills@session-export
 npx skills add crossoverJie/skills@agent-notifier
+npx skills add crossoverJie/skills@clipshelf
+npx skills add crossoverJie/skills@starrocks-upgrade
 ```
 
 The CLI automatically detects your agent (Claude Code, Codex, Cursor, etc.) and installs to the correct location.
@@ -63,6 +67,7 @@ Once installed, Claude will automatically discover these skills when you ask for
     pip install -r ~/skills/skills/image-uploader/requirements.txt
     pip install -r ~/skills/skills/cover-generator/requirements.txt
     pip install -r ~/skills/skills/auto-blog-cover/requirements.txt
+    pip install -r ~/skills/skills/starrocks-upgrade/requirements.txt
     ```
 
 3.  **Usage**:
@@ -94,4 +99,9 @@ Each skill has its own documentation and requirements.
 4.  **Agent Notifier**:
     ```bash
     python3 skills/agent-notifier/setup.py
+    ```
+
+5.  **StarRocks Upgrade**:
+    ```bash
+    python3 skills/starrocks-upgrade/sr_upgrade.py --old-branch branch-3.3 --new-branch branch-3.5 --repo-path /path/to/starrocks
     ```
