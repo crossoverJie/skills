@@ -16,9 +16,10 @@ metadata:
   version: "4.0"
 triggers:
   - starrocks upgrade
+  - starrocks 升级
+  - starrocks version comparison
   - starrocks 版本对比
   - starrocks release note
-  - starrocks 升级
 ---
 
 # StarRocks Upgrade Skill
@@ -36,10 +37,10 @@ comprehensive compatibility checking with unified impact assessment.
 - **git** (for branch diff)
 - **gh** (GitHub CLI, authenticated — only needed for `--fetch-prs`)
 - **PyYAML** (optional — only needed for `--cluster-profile`)
-- **StarRocks 官方文档**（本地仓库内）：`docs/zh/` 目录，生成升级报告时必须参考以下文档：
-  - `docs/zh/deployment/upgrade.md` — 升级流程（升级顺序、兼容性配置、注意事项）
-  - `docs/zh/deployment/deployment_prerequisites.md` — 部署先决条件（JDK 版本等）
-  - `docs/zh/release_notes/` — 各版本 Release Notes
+- **StarRocks official documentation** (in local repo): `docs/zh/` directory. The following docs MUST be referenced when generating the upgrade report:
+  - `docs/zh/deployment/upgrade.md` — Upgrade procedure (upgrade order, compatibility settings, caveats)
+  - `docs/zh/deployment/deployment_prerequisites.md` — Deployment prerequisites (JDK version, etc.)
+  - `docs/zh/release_notes/` — Release notes for each version
 
 ## Cluster Profile (Optional but Highly Recommended)
 
@@ -124,30 +125,31 @@ be_conf: |
 ### Example Conversation
 
 ```
-User: 我想做 StarRocks 升级分析，从 3.3.16-cj-0708 升级到 3.5.17-cj-0604
+User: I want to do a StarRocks upgrade analysis, from 3.3.16-cj-0708 to 3.5.17-cj-0604
 
-Agent: 好的，我先检查集群配置信息...
-       没有找到 cluster-profile.yaml，我需要了解一些集群信息：
+Agent: OK, let me check the cluster configuration first...
+       No cluster-profile.yaml found. I need some cluster information:
 
-       1. 集群名称和部署方式是什么？(K8s / VM / 混合)
-       2. 能否贴一下生产环境的 fe.conf 内容？
-       3. 能否贴一下生产环境的 be.conf 内容？
-       4. 集群规模：多少 FE/BE 节点？大约多少表和 MV？是否使用异步 MV / 同步 rollup？
+       1. What is the cluster name and deployment method? (K8s / VM / mixed)
+       2. Can you paste the production fe.conf content?
+       3. Can you paste the production be.conf content?
+       4. Cluster scale: how many FE/BE nodes? Roughly how many tables and MVs?
+          Using async MV, sync MV (rollup), or both?
 
-       你可以一次性提供所有信息，也可以逐项告诉我。
+       You can provide all information at once, or tell me one by one.
 
-User: 集群名 prod-cn-east，K8s 部署，3 FE 12 BE，大概 800 张表 120 个 MV，
-      有异步 MV 也有同步 rollup。
-      fe.conf: (粘贴完整内容)
-      be.conf: (粘贴完整内容)
+User: Cluster name prod-cn-east, K8s deployment, 3 FE 12 BE, about 800 tables 120 MVs,
+      both async MV and sync rollup.
+      fe.conf: (paste full content)
+      be.conf: (paste full content)
 
-Agent: [自动解析并保存 cluster-profile.yaml]
-       已保存集群配置 profile：
-       - 部署方式: K8s
-       - FE 配置: 25 项
-       - BE 配置: 18 项
-       - 规模: 800 表, 120 MV
-       开始升级分析...
+Agent: [Auto-parsed and saved cluster-profile.yaml]
+       Saved cluster configuration profile:
+       - Deployment: K8s
+       - FE configs: 25 items
+       - BE configs: 18 items
+       - Scale: 800 tables, 120 MVs
+       Starting upgrade analysis...
 ```
 
 ### Config Conflict Detection Logic
@@ -282,8 +284,8 @@ After the script collects data, the agent should follow a **four-phase analysis*
 7. **Read `cluster-config-conflicts.json`** (if `--cluster-profile` was used) for config conflict detection
    results, deployment-specific risks, and scale assessment
 8. **Read official upgrade documentation** from the StarRocks repo:
-   - `docs/zh/deployment/upgrade.md` — 获取正确的升级流程（升级顺序、兼容性配置步骤）
-   - `docs/zh/deployment/deployment_prerequisites.md` — 获取目标版本的先决条件（JDK 版本等）
+   - `docs/zh/deployment/upgrade.md` — Get the correct upgrade procedure (upgrade order, compatibility config steps)
+   - `docs/zh/deployment/deployment_prerequisites.md` — Get prerequisites for the target version (JDK version, etc.)
 9. **Identify all findings requiring deep analysis**:
    - Scanner HIGH/CRITICAL findings
    - Cluster config conflicts (HIGH risk: removed configs in your conf)
@@ -314,14 +316,14 @@ Target: 3-8 parallel subagents
 **Subagent prompt template for commit diff analysis:**
 
 ```
-你是 StarRocks 升级兼容性分析师。分析以下 commit 的 diff，判断升级风险。
+You are a StarRocks upgrade compatibility analyst. Analyze the diff of the following commits and assess upgrade risks.
 
-## 升级上下文
-- 源分支: {branch_a}
-- 目标分支: {branch_b}
-- 你的负责模块: {module_name}
+## Upgrade Context
+- Source branch: {branch_a}
+- Target branch: {branch_b}
+- Your assigned module: {module_name}
 
-## 待分析 Commit 列表
+## Commits to Analyze
 
 ### Commit 1: {subject}
 - Hash: {hash}
@@ -337,38 +339,37 @@ Diff:
 
 ### Commit 2: ...
 
-## 分析要求
+## Analysis Requirements
 
-对每个 commit，输出以下结构化结果：
+For each commit, output the following structured result:
 
-1. **compatibility_impact**: 是否存在不兼容变更？[YES/NO]
+1. **compatibility_impact**: Are there incompatible changes? [YES/NO]
 2. **impact_type**: [API_BREAKING | BEHAVIOR_CHANGE | DATA_FORMAT | CONFIG_REQUIRED |
    ROLLING_UPGRADE_RISK | ERROR_MESSAGE_CHANGE | DEPRECATION | NONE]
 3. **severity**: [CRITICAL | HIGH | MEDIUM | LOW]
-4. **summary**: 一句话描述变更及其风险
+4. **summary**: One-sentence description of the change and its risk
 5. **incompatible_detail**:
-   - 哪个接口/行为/数据格式发生了变化
-   - 升级后旧版本客户端/旧数据会怎样
-   - 是否在混合版本集群中会出问题
-6. **error_scenario**: 如果存在不兼容，升级后可能出现的具体报错（包含错误信息原文）
-7. **reproduction**: 复现步骤，格式：
-   - Precondition: 在哪个版本、创建什么对象
-   - Action: 执行什么操作（升级/重启/DDL/DML）
-   - Expected result: 升级前的行为
-   - Actual result: 升级后的行为/报错
-   - Verify fix: 如何验证修复（配置回退/重启/预期结果）
-8. **affected_callers**: 受影响的调用方（需要 grep 确认的关键调用点）
-9. **rollback**: 能否回滚？是否单向迁移？
+   - Which interface/behavior/data format changed
+   - What happens to old-version clients/old data after upgrade
+   - Whether it causes issues in a mixed-version cluster
+6. **error_scenario**: If incompatible, the specific error that may appear after upgrade (include the exact error message text)
+7. **reproduction**: Reproduction steps, format:
+   - Precondition: which version, what objects to create
+   - Action: what operation to perform (upgrade/restart/DDL/DML)
+   - Expected result: behavior before upgrade
+   - Actual result: behavior/error after upgrade
+   - Verify fix: how to verify the fix (config rollback/restart/expected result)
+8. **affected_callers**: Affected callers (key call sites to confirm via grep)
+9. **rollback**: Can it be rolled back? Is it a one-way migration?
 
-## 评估原则
-- 宁可误报也不漏报：不确定是否兼容的，标记为 HIGH
-- 关注间接影响：一个方法签名变化可能导致所有调用方失败
-- 重点关注：类型系统变更、null 处理变化、默认值翻转、异常类型变化、
-  序列化格式变化、SQL 语义变化
-- 任何删除的 public 方法/类 = CRITICAL
-- 任何修改了方法签名但未保持向后兼容 = HIGH
-- 任何修改了错误信息的格式 = MEDIUM（可能破坏监控告警）
-- 关注 K8s 重启场景：FE/BE pod 重启是否会触发问题？
+## Evaluation Principles
+- Prefer false positives over false negatives: if unsure whether compatible, mark as HIGH
+- Watch for indirect impacts: a method signature change may break all callers
+- Key focus areas: type system changes, null handling changes, default value flips, exception type changes, serialization format changes, SQL semantics changes
+- Any deleted public method/class = CRITICAL
+- Any method signature change without backward compatibility = HIGH
+- Any error message format change = MEDIUM (may break monitoring/alerting)
+- Watch for K8s restart scenarios: will FE/BE pod restart trigger issues?
   - MV re-activation via AlterJobMgr.java
   - FE leader transfer via GlobalStateMgr.transferToLeader()
   - BE startup via StorageEngine.open()
@@ -389,22 +390,22 @@ Diff:
       "compatibility_impact": "YES",
       "impact_type": "BEHAVIOR_CHANGE",
       "severity": "HIGH",
-      "summary": "ScalarType.isTypeCompatible() 对 VARCHAR(NULL) 的判断逻辑改变，可能导致 MV re-activation 时 schema check 失败",
-      "incompatible_detail": "旧版本允许 VARCHAR(10) 和 VARCHAR(NULL) 互为兼容类型，新版本不再允许。FE 重启时 MV re-activation 会调用 Column.isSchemaCompatible()，如果 MV 定义含 VARCHAR 列，schema check 失败导致 MV 变为 inactive",
-      "error_scenario": "FE 重启后报错：MV 'mv_orders' is inactive: schema is not compatible, column 'order_name' type VARCHAR(65533) != VARCHAR(200)",
+      "summary": "ScalarType.isTypeCompatible() logic changed for VARCHAR(NULL), may cause schema check failure during MV re-activation",
+      "incompatible_detail": "Old version treated VARCHAR(10) and VARCHAR(NULL) as compatible types; new version no longer allows this. On FE restart, MV re-activation calls Column.isSchemaCompatible() — if the MV definition contains VARCHAR columns, schema check failure causes the MV to become inactive",
+      "error_scenario": "After FE restart: MV 'mv_orders' is inactive: schema is not compatible, column 'order_name' type VARCHAR(65533) != VARCHAR(200)",
       "reproduction": {
-        "precondition": "在 3.3 版本创建含 VARCHAR 列的 MV",
-        "action": "升级 FE 到目标版本并重启",
-        "expected_result": "MV 保持 active，查询可正常 rewrite",
-        "actual_result": "MV 变为 inactive，查询不再被 rewrite，返回基表全量扫描结果",
-        "verify_fix": "SET GLOBAL transform_type_prefer_string_for_varchar = false; 重启 FE; MV 恢复 active"
+        "precondition": "Create an MV with VARCHAR columns on version 3.3",
+        "action": "Upgrade FE to target version and restart",
+        "expected_result": "MV stays active, queries can be rewritten normally",
+        "actual_result": "MV becomes inactive, queries no longer rewritten, falls back to full base table scan",
+        "verify_fix": "SET GLOBAL transform_type_prefer_string_for_varchar = false; restart FE; MV recovers to active"
       },
       "affected_callers": [
         "Column.isSchemaCompatible()",
         "AlterJobMgr.reActivateMV()",
         "AnalyzerUtils.transformTableColumnType()"
       ],
-      "rollback": "可回滚，通过 SET GLOBAL 恢复旧行为"
+      "rollback": "Rollback possible via SET GLOBAL to restore old behavior"
     }
   ]
 }
@@ -496,81 +497,81 @@ directly from the scanner output or tiered metadata.
 # StarRocks Upgrade Report: <branch-a> -> <branch-b>
 
 ## ⚠️ INCOMPATIBLE CHANGES — MUST READ FIRST
-> 以下变更会在升级后导致功能异常或报错，必须提前处理。
+> The following changes will cause functional errors or failures after upgrade and must be addressed beforehand.
 
-### [CRITICAL] <变更描述>
-- **来源**: Commit <hash> (<subject>) / Scanner <name>
-- **影响**: <具体报错信息或行为变化>
-- **触发条件**: <什么时候会触发这个问题>
-- **复现步骤**:
+### [CRITICAL] <Change Description>
+- **Source**: Commit <hash> (<subject>) / Scanner <name>
+- **Impact**: <Specific error message or behavior change>
+- **Trigger Condition**: <When will this issue be triggered>
+- **Reproduction Steps**:
   1. Precondition: ...
   2. Action: ...
   3. Expected: ...
   4. Actual: ...
-- **处理建议**: <升级前/升级后需要做什么>
-- **回滚方案**: ...
+- **Recommendation**: <What to do before/after upgrade>
+- **Rollback Plan**: ...
 
-### [HIGH] <变更描述>
-- 同上格式
+### [HIGH] <Change Description>
+- Same format as above
 
 ---
 
-## ⚠️ CLUSTER CONFIG CONFLICTS — 你的集群配置是否有冲突
-> 仅当提供了 cluster profile 时显示此节。以下配置在你的 fe.conf/be.conf 中
-> 与新版本存在冲突，必须在升级前处理。
+## ⚠️ CLUSTER CONFIG CONFLICTS — Conflicts in Your Cluster Configuration
+> This section is shown only when a cluster profile is provided. The following configs in your fe.conf/be.conf
+> conflict with the new version and must be resolved before upgrade.
 
 ### Removed Configs in Your Conf (HIGH)
-> 这些配置已从新版本中移除，但你的 conf 文件中仍然存在。
-> 升级后可能导致启动报错或警告。
+> These configs have been removed from the new version but still exist in your conf files.
+> May cause startup errors or warnings after upgrade.
 
 | Config | Conf Source | Current Value | Recommendation |
 |--------|------------|---------------|----------------|
 
 ### Default Value Changes — You Use the Old Default (MEDIUM)
-> 这些配置的默认值已变，你的 conf 中的值恰好是旧默认值。
-> 需要决定是否采纳新默认值。
+> The default values of these configs have changed, and the value in your conf happens to be the old default.
+> You need to decide whether to adopt the new default.
 
 | Config | Conf Source | Old Default | New Default | Your Value | Recommendation |
 |--------|------------|-------------|-------------|------------|----------------|
 
 ### Default Value Changes — No Override (HIGH)
-> 这些高风险配置的默认值已变，你的 conf 中没有覆盖。
-> 升级后将自动采用新默认值，可能影响行为。
+> The default values of these high-risk configs have changed, and your conf has no override.
+> After upgrade, the new defaults will be adopted automatically, which may affect behavior.
 
 | Config | Conf Source | Old Default | New Default | Recommendation |
 |--------|------------|-------------|-------------|----------------|
 
 ### Default Value Changes — Custom Override (LOW)
-> 这些配置的默认值已变，但你已有自定义覆盖值，不受影响。
+> The default values of these configs have changed, but you already have a custom override, so you are not affected.
 
 | Config | Conf Source | Old Default | New Default | Your Value |
 |--------|------------|-------------|-------------|------------|
 
 ### Deployment-Specific Risks
-> 基于你的部署方式（K8s/VM）的特定风险提示。
+> Risk alerts specific to your deployment method (K8s/VM).
 
 ### Scale Assessment
-> 基于集群规模的风险评级。
+> Risk rating based on cluster scale.
 
 ---
 
-## ⚠️ ERROR SCENARIOS — 升级后可能出现的报错
-> 按触发时机分类，便于按升级阶段排查
+## ⚠️ ERROR SCENARIOS — Possible Errors After Upgrade
+> Categorized by trigger timing for troubleshooting by upgrade stage
 
-### 升级过程中（rolling upgrade）
-| 报错信息 | 触发条件 | 严重程度 | 来源 commit/Scanner | 处理方式 |
+### During Upgrade (rolling upgrade)
+| Error Message | Trigger Condition | Severity | Source commit/Scanner | Resolution |
 |---------|---------|---------|-------------------|---------|
 
-### FE 重启后
-| 报错信息 | 触发条件 | 严重程度 | 来源 commit/Scanner | 处理方式 |
+### After FE Restart
+| Error Message | Trigger Condition | Severity | Source commit/Scanner | Resolution |
 |---------|---------|---------|-------------------|---------|
 
-### BE 重启后
-| 报错信息 | 触发条件 | 严重程度 | 来源 commit/Scanner | 处理方式 |
+### After BE Restart
+| Error Message | Trigger Condition | Severity | Source commit/Scanner | Resolution |
 |---------|---------|---------|-------------------|---------|
 
-### 日常查询/DDL
-| 报错信息 | 触发条件 | 严重程度 | 来源 commit/Scanner | 处理方式 |
+### Routine Queries/DDL
+| Error Message | Trigger Condition | Severity | Source commit/Scanner | Resolution |
 |---------|---------|---------|-------------------|---------|
 
 ---
@@ -741,29 +742,29 @@ For key commits:
 #### <subject> (<hash>)
 - **Tier**: HIGH — <tier_reason>
 - **PR**: #<number>
-- **兼容性影响**: YES/NO
-- **影响类型**: API_BREAKING / BEHAVIOR_CHANGE / DATA_FORMAT / ...
-- **严重程度**: CRITICAL / HIGH / MEDIUM / LOW
-- **详细分析**: <incompatible_detail>
-- **可能的报错**: <error_scenario>
-- **复现步骤**:
+- **Compatibility Impact**: YES/NO
+- **Impact Type**: API_BREAKING / BEHAVIOR_CHANGE / DATA_FORMAT / ...
+- **Severity**: CRITICAL / HIGH / MEDIUM / LOW
+- **Detailed Analysis**: <incompatible_detail>
+- **Possible Errors**: <error_scenario>
+- **Reproduction Steps**:
   1. Precondition: ...
   2. Action: ...
   3. Expected: ...
   4. Actual: ...
   5. Verify fix: ...
-- **受影响调用方**: <affected_callers>
-- **回滚方案**: <rollback>
+- **Affected Callers**: <affected_callers>
+- **Rollback Plan**: <rollback>
 
 ### MEDIUM Tier Commits
-| Commit | Subject | 影响类型 | 风险 | 摘要 |
+| Commit | Subject | Impact Type | Risk | Summary |
 |--------|---------|---------|------|------|
 
 ### Skipped Commits (LOW/SKIP tier)
 | Count | Category | Reason |
 |-------|----------|--------|
-| 42 | test | 纯测试变更，无兼容性风险 |
-| 18 | docs | 文档变更 |
+| 42 | test | Pure test changes, no compatibility risk |
+| 18 | docs | Documentation changes |
 ```
 
 ### Analysis Guidelines
