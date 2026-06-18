@@ -13,6 +13,7 @@ A collection of useful skills for AI agents (like Claude Code/ Codex/ GitHub Cop
 | [Agent Notifier](skills/agent-notifier/SKILL.md) | Multi-channel notifications (sound, macOS alert, Telegram, Email, Slack, Discord, DingTalk) when your AI agent needs input or finishes a task |![notifier.png](img/notifier.png) |
 | [ClipShelf](skills/clipshelf/SKILL.md) | CLI to query, add, tag, and delete clipboard entries via the ClipShelf clipboard manager | |
 | [StarRocks Upgrade](skills/starrocks-upgrade/SKILL.md) | StarRocks upgrade comparison tool with 11 compatibility scanners and four-phase parallel analysis | |
+| [Generate gRPC Java Wiki](skills/generate-grpc-java-wiki/SKILL.md) | Agent-driven wiki generation for gRPC + Java projects with consistent styling, source attribution, and Mermaid diagrams | |
 
 
 ## Installation
@@ -35,6 +36,7 @@ npx skills add crossoverJie/skills@session-export
 npx skills add crossoverJie/skills@agent-notifier
 npx skills add crossoverJie/skills@clipshelf
 npx skills add crossoverJie/skills@starrocks-upgrade
+npx skills add crossoverJie/skills@generate-grpc-java-wiki
 ```
 
 The CLI automatically detects your agent (Claude Code, Codex, Cursor, etc.) and installs to the correct location.
