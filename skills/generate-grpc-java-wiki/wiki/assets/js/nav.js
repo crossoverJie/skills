@@ -35,17 +35,17 @@ function showWelcomePage() {
             <div class="quick-links">
                 <h3>快速导航</h3>
                 <div class="link-cards">
-                    <a href="#" data-file="01-系统架构.md" class="link-card" onclick="handleCardClick(this, event)">
+                    <a href="#" data-file="01-system-architecture.md" class="link-card" onclick="handleCardClick(this, event)">
                         <div class="card-icon">🏗️</div>
                         <div class="card-title">系统架构</div>
                         <div class="card-desc">了解整体技术架构</div>
                     </a>
-                    <a href="#" data-file="02-核心功能.md" class="link-card" onclick="handleCardClick(this, event)">
+                    <a href="#" data-file="02-core-features.md" class="link-card" onclick="handleCardClick(this, event)">
                         <div class="card-icon">⭐</div>
                         <div class="card-title">核心功能</div>
                         <div class="card-desc">功能模块说明</div>
                     </a>
-                    <a href="#" data-file="03-ER图.md" class="link-card" onclick="handleCardClick(this, event)">
+                    <a href="#" data-file="03-er-diagram.md" class="link-card" onclick="handleCardClick(this, event)">
                         <div class="card-icon">🗄️</div>
                         <div class="card-title">ER 图</div>
                         <div class="card-desc">数据库实体关系</div>

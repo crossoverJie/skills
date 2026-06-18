@@ -11,6 +11,17 @@ Agent-driven wiki generation workflow for gRPC + Java projects with consistent s
 - Responsive sidebar navigation
 - Automatic source code link navigation
 
+## Important: Project-Specific Optimization Required
+
+**This is NOT a generic wiki template.** Different projects have different business domains, architectures, and documentation needs. The generated wiki is a starting framework that requires customization:
+
+- Review the generated content against your actual project structure
+- Adjust business logic descriptions to match your domain terminology
+- Add or remove sections based on your team's documentation standards
+- Refine API documentation to reflect your actual service interfaces
+
+**Expect multiple iterations** with the Agent to achieve optimal results for your specific project.
+
 ## Usage
 
 Call this skill in the target project, then let the Agent:

@@ -373,13 +373,13 @@ function indexHtml(projectInfo, protoInfo, stats) {
 
             <!-- Quick Actions -->
             <div class="quick-actions">
-                <a href="01-系统架构.html" class="quick-action-btn primary">
+                <a href="01-system-architecture.html" class="quick-action-btn primary">
                     <span>🏗️</span> 系统架构
                 </a>
-                <a href="02-核心功能.html" class="quick-action-btn">
+                <a href="02-core-features.html" class="quick-action-btn">
                     <span>⭐</span> 核心功能
                 </a>
-                <a href="03-ER图.html" class="quick-action-btn">
+                <a href="03-er-diagram.html" class="quick-action-btn">
                     <span>🗂️</span> ER图
                 </a>
                 ${hasJobs ? `<a href="job/index.html" class="quick-action-btn">
@@ -413,19 +413,19 @@ ${serviceCards}
             </div>
 
             <div class="arch-grid">
-                <a href="01-系统架构.html" class="arch-card">
+                <a href="01-system-architecture.html" class="arch-card">
                     <div class="arch-card-icon" style="background: #dbeafe;">🏗️</div>
                     <div class="arch-card-title">系统架构图</div>
                     <div class="arch-card-desc">整体服务架构与调用关系，展示系统组件间的交互流程</div>
                 </a>
 
-                <a href="02-核心功能.html" class="arch-card">
+                <a href="02-core-features.html" class="arch-card">
                     <div class="arch-card-icon" style="background: #fef3c7;">⭐</div>
                     <div class="arch-card-title">核心功能</div>
                     <div class="arch-card-desc">业务功能模块说明，涵盖核心能力与设计思想</div>
                 </a>
 
-                <a href="03-ER图.html" class="arch-card">
+                <a href="03-er-diagram.html" class="arch-card">
                     <div class="arch-card-icon" style="background: #d1fae5;">🗂️</div>
                     <div class="arch-card-title">ER图</div>
                     <div class="arch-card-desc">数据实体关系图，展示核心数据模型与关联关系</div>
@@ -1626,17 +1626,17 @@ function showWelcomePage() {
             <div class="quick-links">
                 <h3>快速导航</h3>
                 <div class="link-cards">
-                    <a href="#" data-file="01-系统架构.md" class="link-card" onclick="handleCardClick(this, event)">
+                    <a href="#" data-file="01-system-architecture.md" class="link-card" onclick="handleCardClick(this, event)">
                         <div class="card-icon">🏗️</div>
                         <div class="card-title">系统架构</div>
                         <div class="card-desc">了解整体技术架构</div>
                     </a>
-                    <a href="#" data-file="02-核心功能.md" class="link-card" onclick="handleCardClick(this, event)">
+                    <a href="#" data-file="02-core-features.md" class="link-card" onclick="handleCardClick(this, event)">
                         <div class="card-icon">⭐</div>
                         <div class="card-title">核心功能</div>
                         <div class="card-desc">功能模块说明</div>
                     </a>
-                    <a href="#" data-file="03-ER图.md" class="link-card" onclick="handleCardClick(this, event)">
+                    <a href="#" data-file="03-er-diagram.md" class="link-card" onclick="handleCardClick(this, event)">
                         <div class="card-icon">🗄️</div>
                         <div class="card-title">ER 图</div>
                         <div class="card-desc">数据库实体关系</div>

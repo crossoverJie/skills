@@ -44,6 +44,22 @@ Instead, it instructs the Agent to:
 - generate a consistent wiki structure
 - follow the provided style and output requirements
 
+## Important: Not a Generic Wiki Template
+
+**This skill provides a framework, not a one-size-fits-all solution.** Each project has unique characteristics that require targeted optimization:
+
+- **Different business domains** — e-commerce, fintech, logistics, etc. each have specific documentation needs
+- **Different architectures** — even within gRPC + Java, service patterns, middleware usage, and data flows vary
+- **Different team needs** — some teams need detailed API specs, others need high-level architecture overviews
+
+**You should customize the generated wiki based on:**
+1. Your project's specific business logic and domain terminology
+2. The actual service dependencies and data flows in your codebase
+3. Your team's documentation standards and review requirements
+4. The level of detail your developers need (API reference vs. architecture guide)
+
+The templates and structure provided are starting points — expect to refine them through multiple iterations with the Agent to match your project's specific needs.
+
 ## Required Workflow
 
 See [docs/workflow.md](docs/workflow.md) for the complete Agent workflow.
