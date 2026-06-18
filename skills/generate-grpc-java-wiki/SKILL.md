@@ -1759,6 +1759,25 @@ public class Example {
 ```
 ```
 
+## Important: Iterative Optimization
+
+**The generated wiki may not be perfect on the first attempt.** This is expected — wiki generation is an iterative process. If the output doesn't meet your expectations, you should:
+
+1. **Review the generated wiki** — open it in a browser and check each page
+2. **Provide specific feedback** — tell the Agent which pages need improvement, what's missing, or what's incorrect
+3. **Request targeted re-generation** — ask the Agent to re-generate specific pages with your feedback incorporated
+4. **Repeat until satisfied** — multiple rounds of feedback and refinement are normal
+
+Common issues to look for and report:
+- Missing or incomplete business logic descriptions
+- Inaccurate source code references or line numbers
+- Mermaid diagrams that don't render correctly
+- Missing RPC methods or incorrect request/response field descriptions
+- Service dependencies not properly identified
+- Incomplete error handling documentation
+
+**Tip**: Be specific in your feedback (e.g., "The GetUser method page is missing the error handling section" rather than "fix the docs"). This helps the Agent make targeted improvements efficiently.
+
 ## Quality Checklist
 
 See [docs/quality-checklist.md](docs/quality-checklist.md) for the full checklist.

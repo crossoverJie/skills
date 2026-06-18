@@ -132,3 +132,4 @@ Then visit http://localhost:8080
 1. Generated documents require the Agent to scan project code, mark as TODO when automatic parsing is not possible
 2. Styles and interaction logic are **unified**, all projects look consistent after generation
 3. The `wiki/` directory under this directory is example output, for reference only for style and structure
+4. **Wiki generation is an iterative process** — if the generated wiki doesn't meet your expectations, provide specific feedback and ask the Agent to re-generate or refine specific pages. Multiple rounds of optimization are normal and expected
