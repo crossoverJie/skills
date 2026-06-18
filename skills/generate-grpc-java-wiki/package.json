@@ -1,0 +1,18 @@
+{
+  "name": "generate-wiki",
+  "version": "2.0.0",
+  "description": "Prompt-only workflow for generating gRPC + Java project wiki documentation",
+  "scripts": {
+    "test": "bash run-tests.sh"
+  },
+  "keywords": [
+    "grpc",
+    "java",
+    "wiki",
+    "documentation",
+    "proto",
+    "claude-code-skill"
+  ],
+  "author": "",
+  "license": "MIT"
+}

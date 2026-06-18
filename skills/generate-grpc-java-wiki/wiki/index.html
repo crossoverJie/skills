@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>generate-wiki - 项目 Wiki</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/java.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/protobuf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/yaml.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/sql.min.js"></script>
+</head>
+<body>
+    <div class="wiki-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>📚 generate-wiki</h1>
+                <p>项目开发文档</p>
+            </div>
+
+            <nav class="nav-menu">
+                <div class="nav-section">
+                    <div class="nav-title" onclick="toggleSection(this)">
+                        <span class="toggle-icon">▼</span>
+                        系统概览
+                    </div>
+                    <ul class="nav-list">
+                        <li><a href="#" data-file="01-系统架构.md">🏗️ 系统架构</a></li>
+                        <li><a href="#" data-file="02-核心功能.md">⭐ 核心功能</a></li>
+                        <li><a href="#" data-file="03-ER图.md">🗄️ ER 图</a></li>
+                    </ul>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-title" onclick="toggleSection(this)">
+                        <span class="toggle-icon">▼</span>
+                        gRPC 接口
+                    </div>
+                    <ul class="nav-list">
+                        <li class="nav-group">接口列表</li>
+                        <li><a href="#" data-file="service/methodWithOptions.md">methodWithOptions</a></li>
+                        <li><a href="#" data-file="service/normalMethod.md">normalMethod</a></li>
+                        <li class="nav-group">接口列表</li>
+                        <li><a href="#" data-file="service/getUser.md">getUser</a></li>
+                        <li><a href="#" data-file="service/createUser.md">createUser</a></li>
+                        <li><a href="#" data-file="service/updateUser.md">updateUser</a></li>
+                        <li><a href="#" data-file="service/deleteUser.md">deleteUser</a></li>
+                        <li class="nav-group">接口列表</li>
+                        <li><a href="#" data-file="service/queryUsers.md">queryUsers</a></li>
+                        <li><a href="#" data-file="service/disableUser.md">disableUser</a></li>
+
+                    </ul>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <p>generate-wiki v1.0</p>
+            </div>
+        </aside>
+
+        <main class="content">
+            <div class="content-header">
+                <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+                <div class="breadcrumb" id="breadcrumb">首页</div>
+            </div>
+            <div class="content-body" id="content-body"></div>
+        </main>
+    </div>
+
+    <script src="assets/js/nav.js"></script>
+</body>
+</html>

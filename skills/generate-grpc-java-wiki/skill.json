@@ -1,0 +1,5 @@
+{
+  "name": "generate-wiki",
+  "description": "Agent-driven wiki generation workflow for gRPC + Java projects with consistent styling",
+  "version": "2.0.0"
+}
