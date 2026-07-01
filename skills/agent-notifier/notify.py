@@ -322,9 +322,27 @@ def send_telegram(cfg, event_info):
     body = _format_body(event_info)
     text = f"*{title}*\n{body}"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
-    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
-    urlopen(req, timeout=10)
+    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+
+    all_proxy = os.environ.get("all_proxy") or os.environ.get("ALL_PROXY") or ""
+    if "socks5" in all_proxy.lower():
+        proxy_addr = all_proxy.split("://", 1)[-1] if "://" in all_proxy else all_proxy
+        subprocess.run(
+            [
+                "curl", "-s", "--socks5-hostname", proxy_addr,
+                "--connect-timeout", "5", "--max-time", "15",
+                "-X", "POST", url,
+                "-H", "Content-Type: application/json",
+                "-d", payload,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+        )
+        return
+
+    req = Request(url, data=payload.encode(), headers={"Content-Type": "application/json"})
+    urlopen(req, timeout=15)
 
 
 def send_email(cfg, event_info):
