@@ -9,6 +9,7 @@ Requires only the Python standard library.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -42,16 +43,37 @@ def _command_exists(cmd):
     return shutil.which(cmd) is not None
 
 
+def _is_agent_notifier_entry(entry):
+    """Return True if a hook entry invokes agent-notifier's notify.py."""
+    if not isinstance(entry, dict):
+        return False
+    for hook in entry.get("hooks", []):
+        if isinstance(hook, dict):
+            cmd = hook.get("command") or hook.get("bash") or ""
+            if "agent-notifier/notify.py" in cmd or cmd.endswith("notify.py"):
+                return True
+    cmd = entry.get("command") or entry.get("bash") or ""
+    return "agent-notifier/notify.py" in cmd or cmd.endswith("notify.py")
+
+
+def _upsert_hook_entry(event_list, new_entry):
+    """Append *new_entry* to *event_list* after removing stale agent-notifier entries."""
+    filtered = [e for e in event_list if not _is_agent_notifier_entry(e)]
+    filtered.append(new_entry)
+    return filtered
+
+
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
 
 PLATFORMS = {
     "claude_code": "Claude Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
     "copilot_cli": "GitHub Copilot CLI",
     "cursor": "Cursor",
     "aider": "Aider",
-    "opencode": "OpenCode",
 }
 
 
@@ -61,8 +83,20 @@ def detect_platforms():
 
     # Claude Code
     claude_settings = os.path.expanduser("~/.claude/settings.json")
-    found["claude_code"] = os.path.isfile(claude_settings) or os.path.isdir(
-        os.path.expanduser("~/.claude")
+    found["claude_code"] = (
+        _command_exists("claude")
+        or os.path.isfile(claude_settings)
+        or os.path.isdir(os.path.expanduser("~/.claude"))
+    )
+
+    # Codex
+    found["codex"] = _command_exists("codex") or os.path.isdir(
+        os.path.expanduser("~/.codex")
+    )
+
+    # OpenCode
+    found["opencode"] = _command_exists("opencode") or os.path.isdir(
+        os.path.expanduser("~/.config/opencode")
     )
 
     # Copilot CLI
@@ -73,11 +107,6 @@ def detect_platforms():
 
     # Aider
     found["aider"] = _command_exists("aider")
-
-    # OpenCode
-    found["opencode"] = _command_exists("opencode") or os.path.isdir(
-        os.path.expanduser("~/.config/opencode")
-    )
 
     return found
 
@@ -114,11 +143,12 @@ def configure_channels(config):
     # Telegram
     print("\n3. Telegram")
     enabled = _confirm("   Enable Telegram?", default=False)
-    tg = channels.get("telegram", {"enabled": False, "bot_token": "", "chat_id": ""})
+    tg = channels.get("telegram", {"enabled": False, "bot_token": "", "chat_id": "", "proxy": ""})
     tg["enabled"] = enabled
     if enabled:
         tg["bot_token"] = _input("   Bot token (from @BotFather)", tg.get("bot_token", ""))
         tg["chat_id"] = _input("   Chat ID", tg.get("chat_id", ""))
+        tg["proxy"] = _input("   Proxy URL (optional, e.g. socks5://127.0.0.1:7898)", tg.get("proxy", ""))
     channels["telegram"] = tg
 
     # Email
@@ -173,31 +203,125 @@ def configure_channels(config):
 # Hook installation per platform
 # ---------------------------------------------------------------------------
 
-def install_claude_code_hooks():
-    """Add Notification hook to ~/.claude/settings.json."""
-    settings_path = os.path.expanduser("~/.claude/settings.json")
+def install_claude_code_hooks(notify_script=NOTIFY_SCRIPT, settings_path=None):
+    """Merge Stop, StopFailure, PermissionRequest, and Notification hooks into ~/.claude/settings.json."""
+    if settings_path is None:
+        settings_path = os.path.expanduser("~/.claude/settings.json")
     settings = {}
     if os.path.isfile(settings_path):
         with open(settings_path, "r", encoding="utf-8") as f:
             settings = json.load(f)
 
     hooks = settings.setdefault("hooks", {})
-    notify_cmd = f"python3 {NOTIFY_SCRIPT}"
+    notify_cmd = f"python3 {notify_script} --platform claude_code"
 
-    hooks["Notification"] = [
-        {
-            "matcher": "",
-            "hooks": [
-                {"type": "command", "command": notify_cmd}
-            ],
-        }
-    ]
+    event_configs = {
+        "Stop": {
+            "hooks": [{"type": "command", "command": notify_cmd}],
+        },
+        "StopFailure": {
+            "hooks": [{"type": "command", "command": notify_cmd}],
+        },
+        "PermissionRequest": {
+            "matcher": "*",
+            "hooks": [{"type": "command", "command": notify_cmd}],
+        },
+        "Notification": {
+            "matcher": "idle_prompt|elicitation_dialog",
+            "hooks": [{"type": "command", "command": notify_cmd}],
+        },
+    }
 
+    for event_name, entry in event_configs.items():
+        existing_list = hooks.get(event_name, [])
+        if not isinstance(existing_list, list):
+            existing_list = []
+        hooks[event_name] = _upsert_hook_entry(existing_list, entry)
+
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
-    print(f"   Wrote hooks to {settings_path}")
+    print(f"   Wrote Claude Code hooks (Stop, StopFailure, PermissionRequest, Notification) to {settings_path}")
+
+
+def _ensure_codex_hooks_feature(config_toml_path):
+    """Ensure ``[features] hooks = true`` is enabled in ~/.codex/config.toml."""
+    if not os.path.isfile(config_toml_path):
+        os.makedirs(os.path.dirname(config_toml_path), exist_ok=True)
+        with open(config_toml_path, "w", encoding="utf-8") as f:
+            f.write("[features]\nhooks = true\n")
+        return
+
+    with open(config_toml_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Check if [features] section exists
+    features_match = re.search(r"(?m)^\[features\]\s*$", content)
+    if features_match:
+        start = features_match.end()
+        next_sec = re.search(r"(?m)^\[", content[start:])
+        end = start + next_sec.start() if next_sec else len(content)
+        section_body = content[start:end]
+        if re.search(r"(?m)^\s*hooks\s*=", section_body):
+            updated_body = re.sub(
+                r"(?m)^(\s*hooks\s*=\s*).*$",
+                r"\1true",
+                section_body,
+            )
+        else:
+            updated_body = "\nhooks = true" + section_body
+        content = content[:start] + updated_body + content[end:]
+    else:
+        if not content.endswith("\n"):
+            content += "\n"
+        content += "\n[features]\nhooks = true\n"
+
+    with open(config_toml_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def install_codex_hooks(notify_script=NOTIFY_SCRIPT, codex_dir=None):
+    """Merge Stop, PermissionRequest, and Interrupt hooks into ~/.codex/hooks.json."""
+    if codex_dir is None:
+        codex_dir = os.path.expanduser("~/.codex")
+    os.makedirs(codex_dir, exist_ok=True)
+
+    config_toml_path = os.path.join(codex_dir, "config.toml")
+    _ensure_codex_hooks_feature(config_toml_path)
+
+    hooks_path = os.path.join(codex_dir, "hooks.json")
+    data = {}
+    if os.path.isfile(hooks_path):
+        with open(hooks_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    hooks = data.setdefault("hooks", {})
+    notify_cmd = f"python3 {notify_script} --platform codex"
+
+    for event_name in ("Stop", "PermissionRequest"):
+        entry = {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": notify_cmd,
+                    "timeout": 10,
+                }
+            ]
+        }
+        existing_list = hooks.get(event_name, [])
+        if not isinstance(existing_list, list):
+            existing_list = []
+        hooks[event_name] = _upsert_hook_entry(existing_list, entry)
+
+    with open(hooks_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    print(f"   Enabled [features].hooks in {config_toml_path}")
+    print(f"   Wrote Codex hooks (Stop, PermissionRequest) to {hooks_path}")
+    print("   Note: Codex may ask you to trust the new hook on next launch.")
 
 
 def install_copilot_cli_hooks():
@@ -206,7 +330,7 @@ def install_copilot_cli_hooks():
     hooks_dir = os.path.join(project_dir, ".github", "hooks")
     hooks_file = os.path.join(hooks_dir, "agent-notifier.json")
 
-    notify_cmd = f"python3 {NOTIFY_SCRIPT}"
+    notify_cmd = f"python3 {NOTIFY_SCRIPT} --platform copilot_cli"
     hook_config = {
         "version": 1,
         "hooks": {
@@ -226,7 +350,9 @@ def install_copilot_cli_hooks():
         existing.setdefault("version", 1)
         existing_hooks = existing.setdefault("hooks", {})
         for event, entries in hook_config["hooks"].items():
-            existing_hooks.setdefault(event, []).extend(entries)
+            existing_hooks[event] = _upsert_hook_entry(
+                existing_hooks.get(event, []), entries[0]
+            )
         hook_config = existing
 
     os.makedirs(hooks_dir, exist_ok=True)
@@ -239,34 +365,55 @@ def install_copilot_cli_hooks():
 def install_cursor_hooks():
     """Print instructions for Cursor hook setup."""
     cursor_dir = os.path.expanduser("~/.cursor")
-    print(f"   Cursor hook configuration:")
+    print("   Cursor hook configuration:")
     print(f"   Add to {cursor_dir}/hooks.json:")
-    print(f'   {{"stop": [{{"command": "python3 {NOTIFY_SCRIPT}"}}]}}')
+    print(f'   {{"stop": [{{"command": "python3 {NOTIFY_SCRIPT} --platform cursor"}}]}}')
 
 
 def install_aider_hooks():
     """Print instructions for Aider notification setup."""
     print("   Aider notification configuration:")
-    print(f"   Add to .aider.conf.yml or pass as CLI flag:")
+    print("   Add to .aider.conf.yml or pass as CLI flag:")
     print(f"   notifications-command: python3 {NOTIFY_SCRIPT}")
 
 
-def install_opencode_hooks():
-    """Copy the opencode plugin to ~/.config/opencode/plugins/."""
-    plugins_dir = os.path.expanduser("~/.config/opencode/plugins")
+def install_opencode_hooks(plugins_dir=None):
+    """Copy the OpenCode 2.x plugin to ~/.config/opencode/plugins/ and remove legacy .ts copies."""
+    if plugins_dir is None:
+        plugins_dir = os.path.expanduser("~/.config/opencode/plugins")
     os.makedirs(plugins_dir, exist_ok=True)
+
+    # Remove stale legacy TypeScript plugin file if present to avoid duplicate load errors
+    legacy_ts = os.path.join(plugins_dir, "agent-notifier.ts")
+    if os.path.isfile(legacy_ts):
+        os.remove(legacy_ts)
+        print(f"   Removed legacy plugin {legacy_ts}")
+
     src = os.path.join(SCRIPT_DIR, "opencode-plugin.js")
     dst = os.path.join(plugins_dir, "agent-notifier.js")
     shutil.copy2(src, dst)
-    print(f"   Installed plugin to {dst}")
+    print(f"   Installed OpenCode 2.x plugin to {dst}")
+
+    if _command_exists("opencode"):
+        try:
+            subprocess.run(
+                ["opencode", "service", "restart"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+            print("   Restarted OpenCode background service")
+        except Exception:
+            pass
 
 
 PLATFORM_INSTALLERS = {
     "claude_code": install_claude_code_hooks,
+    "codex": install_codex_hooks,
+    "opencode": install_opencode_hooks,
     "copilot_cli": install_copilot_cli_hooks,
     "cursor": install_cursor_hooks,
     "aider": install_aider_hooks,
-    "opencode": install_opencode_hooks,
 }
 
 
@@ -277,12 +424,12 @@ PLATFORM_INSTALLERS = {
 def send_test_notification():
     """Send a test notification via notify.py."""
     test_payload = json.dumps({
-        "notification_type": "idle_prompt",
+        "hook_event_name": "Stop",
         "message": "Setup complete! Notifications are working.",
     })
     try:
         proc = subprocess.run(
-            [sys.executable, NOTIFY_SCRIPT],
+            [sys.executable, NOTIFY_SCRIPT, "--platform", "claude_code"],
             input=test_payload,
             capture_output=True,
             text=True,
@@ -339,11 +486,12 @@ def main():
 
     # 5. Install hooks for detected platforms
     print("\n--- Hook Installation ---\n")
+    default_enabled = {"claude_code", "codex", "opencode"}
     for key in PLATFORMS:
         if not detected.get(key):
             continue
         label = PLATFORMS[key]
-        if _confirm(f"Install hooks for {label}?", default=(key == "claude_code")):
+        if _confirm(f"Install hooks for {label}?", default=(key in default_enabled)):
             PLATFORM_INSTALLERS[key]()
             print()
 

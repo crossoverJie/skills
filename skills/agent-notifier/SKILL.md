@@ -3,21 +3,21 @@ name: agent-notifier
 description: >
   Multi-platform, multi-channel notification skill for AI code agents.
   Sends notifications (sound, macOS alert, Telegram, Email, Slack, Discord, DingTalk)
-  when the agent needs user interaction or completes a task.
-  Supports Claude Code, GitHub Copilot CLI, Cursor, Codex, Aider, and OpenCode.
+  when the agent needs user interaction, encounters a failure, or completes a task.
+  Supports Claude Code, Codex, OpenCode (2.x), GitHub Copilot CLI, Cursor, and Aider.
 license: Apache-2.0
 metadata:
   author: crossoverJie
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Agent Notifier Skill
 
-Deterministic, hook-driven notifications for AI code agents. Never miss when your agent needs input or finishes a task.
+Deterministic, hook-driven notifications for AI code agents. Never miss when your agent finishes a task, fails, or needs permission/input.
 
 ## Why
 
-LLM-based "play a sound when done" prompts are unreliable — context compression drops them, and the model's judgement of "done" is inconsistent. This skill uses each platform's **Hooks system** for guaranteed triggering.
+LLM-based "play a sound when done" prompts are unreliable — context compression drops them, and the model's judgement of "done" is inconsistent. This skill uses each platform's **Hooks / Plugin system** for guaranteed triggering.
 
 ## Prerequisites
 
@@ -26,25 +26,49 @@ LLM-based "play a sound when done" prompts are unreliable — context compressio
 
 ## Supported Platforms
 
-| Platform | Hook Event |
-|----------|-----------|
-| Claude Code | `Notification` (idle_prompt, permission_prompt) |
+| Platform | Hook / Plugin Events |
+|----------|----------------------|
+| Claude Code | `Stop`, `StopFailure`, `PermissionRequest`, `Notification` (`idle_prompt`, `elicitation_dialog`) |
+| Codex | `hooks.json`: `Stop`, `PermissionRequest` (`[features] hooks = true`) |
+| OpenCode (2.x) | Plugin `setup(ctx)` (`session.execution.succeeded`, `session.execution.failed`, `session.error`, `permission.asked`, `form.created`) |
 | GitHub Copilot CLI | `sessionEnd`, `postToolUse` |
 | Cursor | `stop`, `afterFileEdit` |
-| Codex | `agent-turn-complete` |
 | Aider | `--notifications-command` |
-| OpenCode | `session.idle` (plugin) |
 
 ## Quick Start
 
 ```bash
-# Interactive setup — detects platforms, configures channels, installs hooks
+# Interactive setup — detects platforms, configures channels, merges hooks safely
 python3 skills/agent-notifier/setup.py
+```
+
+### Claude Code Users
+
+`setup.py` merges the following hooks into `~/.claude/settings.json` without overwriting existing hooks:
+- `Stop` — task completed (ignores intermediate background subagent stops and `stop_hook_active`)
+- `StopFailure` — API / turn failure requiring user attention
+- `PermissionRequest` — tool approval needed
+- `Notification` — `idle_prompt` / `elicitation_dialog`
+
+### Codex Users
+
+`setup.py` enables `[features] hooks = true` in `~/.codex/config.toml` and merges `Stop` and `PermissionRequest` hooks into `~/.codex/hooks.json`.
+
+> Note: Codex may prompt you once on next launch to trust the newly added hook commands.
+
+### OpenCode (2.x) Users
+
+OpenCode 2.x uses ESM plugins with `export default { id, server, setup }`. Copy the plugin to your plugins directory (and remove any legacy `agent-notifier.ts` file):
+
+```bash
+mkdir -p ~/.config/opencode/plugins
+rm -f ~/.config/opencode/plugins/agent-notifier.ts
+cp skills/agent-notifier/opencode-plugin.js ~/.config/opencode/plugins/agent-notifier.js
 ```
 
 ### Copilot CLI Users
 
-Copilot CLI loads hooks from the project's `.github/hooks/` directory (no global hook support). Create the hook file in **each project** where you want notifications:
+Copilot CLI loads hooks from the project's `.github/hooks/` directory (per-project):
 
 ```bash
 mkdir -p .github/hooks
@@ -53,33 +77,27 @@ cat > .github/hooks/agent-notifier.json << 'EOF'
   "version": 1,
   "hooks": {
     "sessionEnd": [
-      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform copilot_cli"}
     ],
     "postToolUse": [
-      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform copilot_cli"}
     ]
   }
 }
 EOF
 ```
 
-### OpenCode Users
-
-OpenCode uses a JavaScript plugin system. Copy the plugin to your plugins directory:
-
-```bash
-mkdir -p ~/.config/opencode/plugins
-cp skills/agent-notifier/opencode-plugin.js ~/.config/opencode/plugins/agent-notifier.js
-```
-
 ## Manual Usage
 
 ```bash
-# Test with simulated Claude Code event
-echo '{"notification_type":"idle_prompt","message":"Waiting for input"}' | python3 skills/agent-notifier/notify.py
+# Test with simulated Claude Code Stop event
+echo '{"hook_event_name":"Stop"}' | python3 skills/agent-notifier/notify.py --platform claude_code
 
-# Test with simulated OpenCode event
-echo '{"platform":"opencode","event_type":"session.idle","message":"Session completed"}' | python3 skills/agent-notifier/notify.py
+# Test with simulated Codex PermissionRequest event
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git status"}}' | python3 skills/agent-notifier/notify.py --platform codex
+
+# Test with simulated OpenCode 2.x event
+echo '{"platform":"opencode","event_type":"session.execution.succeeded"}' | python3 skills/agent-notifier/notify.py --platform opencode
 
 # Test with command-line args (Aider style)
 python3 skills/agent-notifier/notify.py "Task completed"
@@ -91,7 +109,7 @@ python3 skills/agent-notifier/notify.py "Task completed"
 |---------|---------|-------------|
 | Sound | Enabled | macOS (`afplay`) or Linux (`paplay`/`aplay`) |
 | macOS Notification | Enabled | macOS only |
-| Telegram | Disabled | Bot token + Chat ID |
+| Telegram | Disabled | Bot token + Chat ID (+ optional `proxy`) |
 | Email | Disabled | SMTP credentials |
 | Slack | Disabled | Incoming Webhook URL |
 | Discord | Disabled | Webhook URL |
