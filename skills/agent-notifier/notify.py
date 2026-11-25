@@ -20,9 +20,8 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from email.mime.text import MIMEText
-from urllib.error import URLError
 from urllib.parse import quote_plus
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -45,6 +44,19 @@ PLATFORM_LABELS = {
     "unknown": "AI Agent",
 }
 
+PLATFORM_ALIASES = {
+    "claude": "claude_code",
+    "claude-code": "claude_code",
+    "claude_code": "claude_code",
+    "copilot": "copilot_cli",
+    "copilot-cli": "copilot_cli",
+    "copilot_cli": "copilot_cli",
+    "cursor": "cursor",
+    "codex": "codex",
+    "aider": "aider",
+    "opencode": "opencode",
+}
+
 
 def _read_stdin():
     """Read all of stdin if available, return empty string otherwise."""
@@ -56,59 +68,243 @@ def _read_stdin():
         return ""
 
 
-def parse_input():
+def _parse_cli_args(argv=None):
+    """Extract ``--platform <name>`` flag and remaining positional args."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    platform_hint = None
+    positional = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--platform" and i + 1 < len(args):
+            raw_plat = args[i + 1].strip().lower()
+            platform_hint = PLATFORM_ALIASES.get(raw_plat, raw_plat)
+            i += 2
+        elif arg.startswith("--platform="):
+            raw_plat = arg.split("=", 1)[1].strip().lower()
+            platform_hint = PLATFORM_ALIASES.get(raw_plat, raw_plat)
+            i += 1
+        else:
+            positional.append(arg)
+            i += 1
+    return platform_hint, positional
+
+
+def _has_running_subagent(data):
+    """Return True if a Stop payload indicates a background subagent is still running."""
+    tasks = data.get("background_tasks")
+    if not isinstance(tasks, list):
+        return False
+    for task in tasks:
+        if (
+            isinstance(task, dict)
+            and task.get("type") == "subagent"
+            and task.get("status") == "running"
+        ):
+            return True
+    return False
+
+
+def _format_permission_message(data):
+    """Format a concise PermissionRequest message from tool metadata."""
+    tool = data.get("tool_name") or data.get("toolName") or data.get("permission") or ""
+    tool_input = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
+    preview = ""
+    if tool_input:
+        preview = (
+            tool_input.get("command")
+            or tool_input.get("file_path")
+            or tool_input.get("path")
+            or ""
+        )
+        if isinstance(preview, str):
+            preview = " ".join(preview.split())
+            if len(preview) > 60:
+                preview = preview[:57] + "..."
+        else:
+            preview = ""
+
+    if tool and preview:
+        return f"🔐 Permission required ({tool}: {preview})"
+    if tool:
+        return f"🔐 Permission required ({tool})"
+    return "🔐 Permission required"
+
+
+def parse_input(argv=None):
     """Parse hook input from stdin/argv into a unified event dict.
 
-    Returns ``{"platform": str, "event": str, "message": str, "project": str}``.
+    Returns ``{"platform": str, "event": str, "message": str, "project": str}``,
+    possibly with ``"skip": True`` when an intermediate event should be suppressed.
     """
+    platform_hint, positional = _parse_cli_args(argv)
     raw = _read_stdin().strip()
 
     # Fallback: command-line arguments (used by Aider)
-    if not raw and len(sys.argv) > 1:
+    if not raw and positional:
+        plat = platform_hint or "aider"
         result = {
-            "platform": "aider",
+            "platform": plat,
             "event": "notification",
-            "message": " ".join(sys.argv[1:]),
+            "message": " ".join(positional),
         }
-        result["project"] = _detect_project_context({}, "aider")
+        result["project"] = _detect_project_context({}, plat)
         return result
 
     if not raw:
-        result = {"platform": "unknown", "event": "notification", "message": ""}
-        result["project"] = _detect_project_context({}, "unknown")
+        plat = platform_hint or "unknown"
+        result = {"platform": plat, "event": "notification", "message": ""}
+        result["project"] = _detect_project_context({}, plat)
         return result
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         # Non-JSON stdin – treat the text as a plain message
-        result = {"platform": "unknown", "event": "notification", "message": raw}
-        result["project"] = _detect_project_context({}, "unknown")
+        plat = platform_hint or "unknown"
+        result = {"platform": plat, "event": "notification", "message": raw}
+        result["project"] = _detect_project_context({}, plat)
         return result
 
-    # --- OpenCode ---
-    if data.get("platform") == "opencode":
-        event_type = data.get("event_type", "notification")
+    if not isinstance(data, dict):
+        plat = platform_hint or "unknown"
+        result = {"platform": plat, "event": "notification", "message": str(data)}
+        result["project"] = _detect_project_context({}, plat)
+        return result
+
+    # --- OpenCode (1.x and 2.x plugin payloads) ---
+    if data.get("platform") == "opencode" or platform_hint == "opencode":
+        event_type = data.get("event_type") or data.get("event") or "notification"
+        custom_msg = data.get("message", "")
         event_messages = {
             "session.idle": "✅ Session completed — waiting for your input",
+            "session.execution.succeeded": "✅ Task completed — waiting for your input",
+            "session.execution.failed": (
+                f"❌ Execution failed: {custom_msg}" if custom_msg else "❌ Execution failed"
+            ),
+            "session.error": (
+                f"❌ Session error: {custom_msg}" if custom_msg else "❌ Session error occurred"
+            ),
+            "permission.asked": (
+                f"🔐 {custom_msg}" if custom_msg and not custom_msg.startswith("🔐")
+                else (custom_msg or "🔐 Permission required")
+            ),
+            "form.created": (
+                f"❓ {custom_msg}" if custom_msg and not custom_msg.startswith("❓")
+                else (custom_msg or "❓ Waiting for your answer")
+            ),
+            "question.asked": (
+                f"❓ {custom_msg}" if custom_msg and not custom_msg.startswith("❓")
+                else (custom_msg or "❓ Waiting for your answer")
+            ),
         }
-        event_msg = event_messages.get(event_type, data.get("message", event_type))
+        event_msg = event_messages.get(event_type, custom_msg or event_type)
         result = {"platform": "opencode", "event": event_type, "message": event_msg}
         result["project"] = _detect_project_context(data, "opencode")
         return result
 
-    # --- Claude Code ---
+    # --- Claude Code Notification hook (notification_type) ---
     if "notification_type" in data:
         ntype = data["notification_type"]
         msg = data.get("message", "")
         if ntype == "idle_prompt":
-            event_msg = "✅ Task completed — waiting for your input"
+            event_msg = "⏳ Waiting for your input"
         elif ntype == "permission_prompt":
-            event_msg = "🔐 Permission required"
+            event_msg = f"🔐 {msg}" if msg else "🔐 Permission required"
+        elif ntype == "elicitation_dialog":
+            event_msg = f"❓ {msg}" if msg else "❓ Input required"
+        elif ntype == "auth_success":
+            event_msg = "✅ Authentication succeeded"
         else:
             event_msg = msg or ntype
-        result = {"platform": "claude_code", "event": ntype, "message": event_msg}
-        result["project"] = _detect_project_context(data, "claude_code")
+        plat = platform_hint or "claude_code"
+        result = {"platform": plat, "event": ntype, "message": event_msg}
+        result["project"] = _detect_project_context(data, plat)
+        return result
+
+    # --- Structured hook_event_name (Claude Code 2.x, Codex hooks.json, Cursor, Copilot) ---
+    hook_event = data.get("hook_event_name", "")
+    if hook_event:
+        if platform_hint:
+            plat = platform_hint
+        elif "cursor" in str(data.get("agent", "")).lower():
+            plat = "cursor"
+        elif any(k in data for k in ("stop_hook_active", "transcript_path", "permission_mode")):
+            plat = "claude_code"
+        elif "codex_turn_id" in data:
+            plat = "codex"
+        elif hook_event in ("Stop", "StopFailure", "PermissionRequest", "Notification"):
+            plat = "claude_code"
+        else:
+            plat = "copilot_cli"
+
+        skip = False
+        if hook_event in ("Stop", "stop"):
+            if data.get("stop_hook_active") is True or _has_running_subagent(data):
+                skip = True
+            status = data.get("status", "")
+            if plat == "cursor":
+                event_msg = "Task completed" if status == "completed" else "Session ended"
+            else:
+                event_msg = "✅ Task completed — waiting for your input"
+        elif hook_event == "StopFailure":
+            err_type = data.get("error", "")
+            detail = f" ({err_type})" if err_type else ""
+            event_msg = f"❌ Task failed{detail} — intervention needed"
+        elif hook_event == "PermissionRequest":
+            event_msg = _format_permission_message(data)
+        elif hook_event in ("AskUserQuestion", "Elicitation"):
+            msg = data.get("message", "")
+            event_msg = f"❓ {msg}" if msg else "❓ Waiting for your input"
+        elif hook_event == "Notification":
+            msg = data.get("message", "")
+            event_msg = msg or "🔔 Waiting for your input"
+        elif hook_event == "sessionEnd":
+            status = data.get("status", "")
+            event_msg = "Task completed" if status == "completed" else "Session ended"
+        elif hook_event in ("SessionEnd", "Interrupt"):
+            reason = data.get("reason", "")
+            if hook_event == "Interrupt":
+                event_msg = "⚠️ Task interrupted — waiting for your input"
+            else:
+                event_msg = f"Session ended ({reason})" if reason else "Session ended"
+        elif hook_event in ("postToolUse", "PostToolUse"):
+            tool = data.get("tool_name") or data.get("toolName") or "tool"
+            event_msg = f"Tool '{tool}' finished"
+        elif hook_event == "PostToolUseFailure":
+            tool = data.get("tool_name") or data.get("toolName") or "tool"
+            event_msg = f"❌ Tool '{tool}' failed"
+        elif hook_event == "afterFileEdit":
+            file = data.get("file_path", "file")
+            event_msg = f"Edited {os.path.basename(file)}"
+        else:
+            event_msg = data.get("message") or hook_event
+
+        result = {"platform": plat, "event": hook_event, "message": event_msg}
+        if skip:
+            result["skip"] = True
+        result["project"] = _detect_project_context(data, plat)
+        return result
+
+    # --- Platform-hinted payloads without hook_event_name (e.g. Codex hooks.json) ---
+    if platform_hint in ("codex", "claude_code"):
+        if "tool_name" in data or "permission" in data:
+            event_name = "PermissionRequest"
+            event_msg = _format_permission_message(data)
+        elif "error" in data and not data.get("last_assistant_message", "").startswith("✅"):
+            err_type = data.get("error", "")
+            detail = f" ({err_type})" if isinstance(err_type, str) and err_type else ""
+            event_name = "StopFailure"
+            event_msg = f"❌ Task failed{detail} — intervention needed"
+        else:
+            event_name = "Stop"
+            event_msg = "✅ Task completed — waiting for your input"
+
+        skip = data.get("stop_hook_active") is True or _has_running_subagent(data)
+        result = {"platform": platform_hint, "event": event_name, "message": event_msg}
+        if skip:
+            result["skip"] = True
+        result["project"] = _detect_project_context(data, platform_hint)
         return result
 
     # --- Copilot CLI (field-signature detection) ---
@@ -123,8 +319,9 @@ def parse_input():
             "user_exit": "User exited session",
         }
         event_msg = reason_messages.get(reason, f"Session ended ({reason})")
-        result = {"platform": "copilot_cli", "event": "sessionEnd", "message": event_msg}
-        result["project"] = _detect_project_context(data, "copilot_cli")
+        plat = platform_hint or "copilot_cli"
+        result = {"platform": plat, "event": "sessionEnd", "message": event_msg}
+        result["project"] = _detect_project_context(data, plat)
         return result
 
     # postToolUse: payload contains "toolName" + "toolResult"
@@ -138,55 +335,38 @@ def parse_input():
             "denied": f"Tool '{tool}' was denied",
         }
         event_msg = result_messages.get(result_type, f"Tool '{tool}' finished")
-        result = {"platform": "copilot_cli", "event": "postToolUse", "message": event_msg}
-        result["project"] = _detect_project_context(data, "copilot_cli")
+        plat = platform_hint or "copilot_cli"
+        result = {"platform": plat, "event": "postToolUse", "message": event_msg}
+        result["project"] = _detect_project_context(data, plat)
         return result
 
     # sessionStart: payload contains "source" but no "toolName"
     if "source" in data and "toolName" not in data and "notification_type" not in data:
         source = data["source"]
         event_msg = f"Session started ({source})"
-        result = {"platform": "copilot_cli", "event": "sessionStart", "message": event_msg}
-        result["project"] = _detect_project_context(data, "copilot_cli")
-        return result
-
-    # --- Cursor / other platforms (hook_event_name) ---
-    hook_event = data.get("hook_event_name", "")
-    if hook_event:
-        status = data.get("status", "")
-        if hook_event in ("sessionEnd", "stop"):
-            event_msg = "Task completed" if status == "completed" else "Session ended"
-        elif hook_event == "postToolUse":
-            tool = data.get("tool_name", "tool")
-            event_msg = f"Tool '{tool}' finished"
-        elif hook_event == "afterFileEdit":
-            file = data.get("file_path", "file")
-            event_msg = f"Edited {os.path.basename(file)}"
-        else:
-            event_msg = hook_event
-
-        plat = "cursor" if "cursor" in data.get("agent", "").lower() else "copilot_cli"
-        result = {"platform": plat, "event": hook_event, "message": event_msg}
+        plat = platform_hint or "copilot_cli"
+        result = {"platform": plat, "event": "sessionStart", "message": event_msg}
         result["project"] = _detect_project_context(data, plat)
         return result
 
-    # --- Codex ---
+    # --- Legacy Codex ---
     if "agent-turn-complete" in data or data.get("type") == "agent-turn-complete":
         result = {
             "platform": "codex",
             "event": "agent-turn-complete",
-            "message": data.get("message", "Agent turn completed"),
+            "message": data.get("message", "✅ Task completed — waiting for your input"),
         }
         result["project"] = _detect_project_context(data, "codex")
         return result
 
     # Fallback
+    plat = platform_hint or "unknown"
     result = {
-        "platform": "unknown",
+        "platform": plat,
         "event": "notification",
         "message": data.get("message", json.dumps(data, ensure_ascii=False)),
     }
-    result["project"] = _detect_project_context(data, "unknown")
+    result["project"] = _detect_project_context(data, plat)
     return result
 
 
@@ -206,24 +386,24 @@ def _get_git_repo_name(directory):
         )
         if result.returncode == 0 and result.stdout.strip():
             return os.path.basename(result.stdout.strip())
-    except FileNotFoundError:
-        pass  # git not installed
-    except subprocess.TimeoutExpired:
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return ""
 
 
-def _detect_project_context(data, platform):
+def _detect_project_context(data, _platform):
     """Return a short project identifier string, or ``""`` if unknown.
 
     Resolution order:
-    1. ``cwd`` field in the JSON payload (Copilot CLI sends this)
+    1. ``cwd`` or ``directory`` field in the JSON payload
     2. ``os.getcwd()`` (hook subprocess inherits the parent's cwd)
     3. Try ``_get_git_repo_name()`` on the resolved directory
     4. Fall back to ``os.path.basename(cwd)``
     """
     try:
-        cwd = data.get("cwd", "") if isinstance(data, dict) else ""
+        cwd = ""
+        if isinstance(data, dict):
+            cwd = data.get("cwd") or data.get("directory") or ""
         if not cwd:
             cwd = os.getcwd()
 
@@ -231,7 +411,7 @@ def _detect_project_context(data, platform):
         if repo:
             return repo
 
-        name = os.path.basename(cwd)
+        name = os.path.basename(cwd.rstrip("/\\"))
         return name if name else ""
     except Exception:
         return ""
@@ -302,8 +482,8 @@ def send_macos_notification(cfg, event_info):
     if platform.system() != "Darwin":
         return
     title = _format_title(event_info)
-    body = _format_body(event_info).replace('"', '\\"')
-    title = title.replace('"', '\\"')
+    body = _format_body(event_info).replace("\\", "\\\\").replace('"', '\\"')
+    title = title.replace("\\", "\\\\").replace('"', '\\"')
     script = f'display notification "{body}" with title "{title}"'
     subprocess.Popen(
         ["osascript", "-e", script],
@@ -320,29 +500,40 @@ def send_telegram(cfg, event_info):
         return
     title = _format_title(event_info)
     body = _format_body(event_info)
-    text = f"*{title}*\n{body}"
+    # Send plain text to avoid Telegram Markdown parse errors on underscores/brackets
+    text = f"{title}\n{body}"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+    payload = json.dumps({"chat_id": chat_id, "text": text})
 
-    all_proxy = os.environ.get("all_proxy") or os.environ.get("ALL_PROXY") or ""
-    if "socks5" in all_proxy.lower():
-        proxy_addr = all_proxy.split("://", 1)[-1] if "://" in all_proxy else all_proxy
+    proxy = (
+        cfg.get("proxy")
+        or os.environ.get("all_proxy")
+        or os.environ.get("ALL_PROXY")
+        or ""
+    ).strip()
+
+    if "socks5" in proxy.lower():
+        proxy_addr = proxy.split("://", 1)[-1] if "://" in proxy else proxy
         subprocess.run(
             [
                 "curl", "-s", "--socks5-hostname", proxy_addr,
-                "--connect-timeout", "5", "--max-time", "15",
+                "--connect-timeout", "4", "--max-time", "6",
                 "-X", "POST", url,
                 "-H", "Content-Type: application/json",
                 "-d", payload,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=20,
+            timeout=8,
         )
         return
 
     req = Request(url, data=payload.encode(), headers={"Content-Type": "application/json"})
-    urlopen(req, timeout=15)
+    if proxy:
+        opener = build_opener(ProxyHandler({"http": proxy, "https": proxy}))
+        opener.open(req, timeout=6)
+    else:
+        urlopen(req, timeout=6)
 
 
 def send_email(cfg, event_info):
@@ -364,7 +555,7 @@ def send_email(cfg, event_info):
         msg["Subject"] = f"[Agent Notifier] [{project}] {title}"
     msg["From"] = from_addr
     msg["To"] = to_addr
-    with smtplib.SMTP(host, port, timeout=10) as server:
+    with smtplib.SMTP(host, port, timeout=8) as server:
         server.starttls()
         server.login(username, password)
         server.sendmail(from_addr, [to_addr], msg.as_string())
@@ -379,7 +570,7 @@ def send_slack(cfg, event_info):
     body = _format_body(event_info)
     payload = json.dumps({"text": f"*{title}*\n{body}"}).encode()
     req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
-    urlopen(req, timeout=10)
+    urlopen(req, timeout=8)
 
 
 def send_discord(cfg, event_info):
@@ -391,7 +582,7 @@ def send_discord(cfg, event_info):
     body = _format_body(event_info)
     payload = json.dumps({"content": f"**{title}**\n{body}"}).encode()
     req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
-    urlopen(req, timeout=10)
+    urlopen(req, timeout=8)
 
 
 def send_dingtalk(cfg, event_info):
@@ -419,7 +610,7 @@ def send_dingtalk(cfg, event_info):
         "markdown": {"title": title, "text": f"**{title}**\n\n{body}"},
     }).encode()
     req = Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
-    urlopen(req, timeout=10)
+    urlopen(req, timeout=8)
 
 
 # Map channel name → sender function
@@ -440,6 +631,9 @@ CHANNEL_SENDERS = {
 
 def main():
     event_info = parse_input()
+    if event_info.get("skip"):
+        return 0
+
     config = load_config()
     channels = config.get("channels", {})
 

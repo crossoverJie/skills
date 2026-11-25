@@ -1,6 +1,6 @@
 # Agent Notifier
 
-Multi-platform, multi-channel notification system for AI code agents. Get notified via sound, macOS alerts, Telegram, Email, Slack, Discord, or DingTalk when your agent needs input or completes a task.
+Multi-platform, multi-channel notification system for AI code agents. Get notified via sound, macOS alerts, Telegram, Email, Slack, Discord, or DingTalk when your agent completes a task, encounters an error, or needs your input/approval.
 
 ## Problem
 
@@ -11,18 +11,18 @@ Telling an LLM "play a sound when done" via prompts is unreliable:
 
 ## Solution
 
-Use each platform's **Hooks system** for deterministic triggering. The hook fires a Python script that dispatches notifications to all configured channels concurrently.
+Use each platform's **Hooks / Plugin system** for deterministic triggering. The hook fires a Python script that dispatches notifications to all configured channels concurrently.
 
 ## Supported Platforms
 
-| Platform               | Hook Mechanism        | Trigger Events                                  |
-|------------------------|-----------------------|-------------------------------------------------|
-| **Claude Code**        | `settings.json` hooks | `Notification` (idle_prompt, permission_prompt) |
-| **GitHub Copilot CLI** | `hooks.json`          | `sessionEnd`, `postToolUse`                     |
-| **Cursor**             | `hooks.json`          | `stop`, `afterFileEdit`                         |
-| **Codex (OpenAI)**     | notify setting        | `agent-turn-complete`                           |
-| **Aider**              | CLI flag              | `--notifications-command`                       |
-
+| Platform               | Hook Mechanism            | Trigger Events                                                                                          |
+|------------------------|---------------------------|---------------------------------------------------------------------------------------------------------|
+| **Claude Code**        | `~/.claude/settings.json` | `Stop`, `StopFailure`, `PermissionRequest`, `Notification` (`idle_prompt`, `elicitation_dialog`)        |
+| **Codex (OpenAI)**     | `~/.codex/hooks.json`     | `Stop`, `PermissionRequest` (with `[features] hooks = true` in `~/.codex/config.toml`)                  |
+| **OpenCode (2.x)**     | `~/.config/opencode/plugins/` | `session.execution.succeeded`, `session.execution.failed`, `session.error`, `permission.asked`, `form.created` |
+| **GitHub Copilot CLI** | `.github/hooks/*.json`    | `sessionEnd`, `postToolUse`                                                                             |
+| **Cursor**             | `.cursor/hooks.json`      | `stop`, `afterFileEdit`                                                                                 |
+| **Aider**              | CLI flag / `.aider.conf.yml` | `--notifications-command`                                                                            |
 
 ## Installation
 
@@ -45,32 +45,63 @@ python3 ~/skills/skills/agent-notifier/setup.py
 ## Quick Start
 
 ```bash
-# Interactive setup — detects platforms, configures channels, installs hooks
+# Interactive setup — detects platforms, configures channels, merges hooks safely
 python3 skills/agent-notifier/setup.py
 ```
 
 The setup script will:
 1. Detect which AI agent platforms you have installed
 2. Guide you through enabling notification channels
-3. Automatically install hooks for detected platforms
+3. Incrementally merge hooks for detected platforms without clobbering existing hooks
 4. Send a test notification to verify everything works
 
 ## Manual Platform Configuration
 
 ### Claude Code
 
-Add to `~/.claude/settings.json`:
+Merge into `~/.claude/settings.json`:
 
 ```json
 {
   "hooks": {
-    "Notification": [
+    "Stop": [
       {
-        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 $HOME/.claude/skills/agent-notifier/notify.py"
+            "command": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform claude_code"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform claude_code"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform claude_code"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform claude_code"
           }
         ]
       }
@@ -79,9 +110,61 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
+### Codex
+
+1. Enable hooks in `~/.codex/config.toml`:
+
+```toml
+[features]
+hooks = true
+```
+
+2. Add `Stop` and `PermissionRequest` hooks in `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/<you>/.claude/skills/agent-notifier/notify.py --platform codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/<you>/.claude/skills/agent-notifier/notify.py --platform codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **Note:** Codex tracks hook trust hashes in `~/.codex/config.toml`. On your next interactive Codex launch, approve the trust prompt if asked.
+
+### OpenCode (2.x)
+
+Copy `opencode-plugin.js` into `~/.config/opencode/plugins/` (and remove any legacy `agent-notifier.ts` file):
+
+```bash
+mkdir -p ~/.config/opencode/plugins
+rm -f ~/.config/opencode/plugins/agent-notifier.ts
+cp skills/agent-notifier/opencode-plugin.js ~/.config/opencode/plugins/agent-notifier.js
+```
+
 ### GitHub Copilot CLI
 
-> **Note:** Copilot CLI loads hooks from the project's `.github/hooks/` directory. You need to in **each project** that you want notifications for create this file. Claude Code hooks are global (`~/.claude/settings.json`), but Copilot CLI hooks are per-project.
+> **Note:** Copilot CLI loads hooks from the project's `.github/hooks/` directory (per-project).
 
 Create `.github/hooks/agent-notifier.json` in your project root:
 
@@ -92,17 +175,15 @@ cat > .github/hooks/agent-notifier.json << 'EOF'
   "version": 1,
   "hooks": {
     "sessionEnd": [
-      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform copilot_cli"}
     ],
     "postToolUse": [
-      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+      {"type": "command", "bash": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform copilot_cli"}
     ]
   }
 }
 EOF
 ```
-
-Or run `python3 ~/.claude/skills/agent-notifier/setup.py` to install automatically.
 
 ### Cursor
 
@@ -111,7 +192,7 @@ Add to `.cursor/hooks.json`:
 ```json
 {
   "stop": [
-    {"command": "python3 $HOME/.claude/skills/agent-notifier/notify.py"}
+    {"command": "python3 $HOME/.claude/skills/agent-notifier/notify.py --platform cursor"}
   ]
 }
 ```
@@ -148,7 +229,7 @@ Shows a native macOS notification via `osascript`. Only available on macOS.
 1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram
 2. Send `/newbot` and follow the prompts to get your **Bot Token**
 3. Send a message to your bot, then visit `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your **Chat ID**
-4. Enable Telegram in the config and fill in `bot_token` and `chat_id`
+4. Enable Telegram in the config and fill in `bot_token`, `chat_id`, and optional `proxy` (e.g. `socks5://127.0.0.1:7898` or `http://127.0.0.1:7890`)
 
 ### Email (SMTP)
 
@@ -178,16 +259,6 @@ Shows a native macOS notification via `osascript`. Only available on macOS.
 2. Choose a security method — **Sign (加签)** is recommended
 3. Copy the **Webhook URL** and optional **Secret** (signing key) into `notify-config.json`
 
-```json
-{
-  "dingtalk": {
-    "enabled": true,
-    "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=...",
-    "secret": "SEC..."
-  }
-}
-```
-
 ## Configuration File
 
 The config file is searched in order:
@@ -207,7 +278,8 @@ The config file is searched in order:
     "telegram": {
       "enabled": false,
       "bot_token": "123456:ABC-DEF...",
-      "chat_id": "987654321"
+      "chat_id": "987654321",
+      "proxy": ""
     },
     "email": {
       "enabled": false,
@@ -238,14 +310,20 @@ The config file is searched in order:
 ## Testing
 
 ```bash
-# Simulate a Claude Code idle_prompt event
-echo '{"notification_type":"idle_prompt","message":"Waiting for your input"}' | python3 skills/agent-notifier/notify.py
+# Simulate a Claude Code Stop event
+echo '{"hook_event_name":"Stop"}' | python3 skills/agent-notifier/notify.py --platform claude_code
+
+# Simulate a Claude Code StopFailure event
+echo '{"hook_event_name":"StopFailure","error":"rate_limit"}' | python3 skills/agent-notifier/notify.py --platform claude_code
+
+# Simulate a Codex PermissionRequest event
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf dist"}}' | python3 skills/agent-notifier/notify.py --platform codex
+
+# Simulate an OpenCode 2.x execution succeeded event
+echo '{"platform":"opencode","event_type":"session.execution.succeeded"}' | python3 skills/agent-notifier/notify.py --platform opencode
 
 # Simulate a Copilot CLI sessionEnd event
-echo '{"timestamp":1704618000000,"cwd":"/path","reason":"complete"}' | python3 skills/agent-notifier/notify.py
-
-# Simulate a Copilot CLI postToolUse event
-echo '{"timestamp":1704614700000,"cwd":"/path","toolName":"bash","toolArgs":"ls","toolResult":{"resultType":"success","textResultForLlm":"done"}}' | python3 skills/agent-notifier/notify.py
+echo '{"timestamp":1704618000000,"cwd":"/path","reason":"complete"}' | python3 skills/agent-notifier/notify.py --platform copilot_cli
 
 # Simulate a Cursor task completion
 echo '{"hook_event_name":"stop","status":"completed","agent":"cursor"}' | python3 skills/agent-notifier/notify.py
@@ -253,8 +331,8 @@ echo '{"hook_event_name":"stop","status":"completed","agent":"cursor"}' | python
 # Aider-style (command-line argument)
 python3 skills/agent-notifier/notify.py "Task completed"
 
-# Debug with Claude Code
-claude --debug
+# Run unit tests
+python3 -m unittest skills/agent-notifier/test_notify.py
 ```
 
 ## Troubleshooting
@@ -266,14 +344,14 @@ claude --debug
 **No macOS notification:**
 - Check System Settings > Notifications > Script Editor is allowed
 
-**Telegram not working:**
+**Telegram not working / timing out:**
 - Verify bot token: `curl https://api.telegram.org/bot<TOKEN>/getMe`
-- Verify chat ID: send a message to the bot first, then check `getUpdates`
+- If you are behind a local proxy and agent hooks don't inherit shell proxy env vars, set `"proxy": "socks5://127.0.0.1:7898"` (or your HTTP proxy URL) in `notify-config.json`
 
 **Hook not firing:**
 - Claude Code: Run `claude --debug` and look for hook execution logs
-- Check that `python3` is in your PATH
-- Verify the script path in the hook config is absolute and correct
+- Codex: Run `codex doctor` and check `[features] hooks = true` in `~/.codex/config.toml`
+- OpenCode 2.x: Check `~/.local/share/opencode/log/opencode.log` for plugin loading status
 
 ## Session Context
 
@@ -286,21 +364,19 @@ Body:  [my-project] ✅ Task completed — waiting for your input
 
 The project name is detected automatically:
 
-1. **Copilot CLI** — uses the `cwd` field from the hook payload
-2. **All platforms** — falls back to `os.getcwd()` (the hook subprocess inherits the parent's working directory)
+1. Uses the `cwd` or `directory` field from the hook payload when present
+2. Falls back to `os.getcwd()` (the hook subprocess inherits the parent's working directory)
 3. If the directory is inside a **git repository**, the repo name is used (e.g. `my-project` from `/Users/dev/my-project`)
 4. Otherwise the directory basename is used
-
-No configuration is needed — the context is always included when a project name can be determined.
 
 ## Architecture
 
 ```
-stdin (JSON from hook) → parse_input() → unified event model
-                                              ↓
-                              load_config() → notify-config.json
-                                              ↓
-                              ThreadPoolExecutor → [sound, macOS, telegram, dingtalk, ...]
+stdin (JSON from hook) + --platform → parse_input() → unified event model
+                                                            ↓
+                                            load_config() → notify-config.json
+                                                            ↓
+                                            ThreadPoolExecutor → [sound, macOS, telegram, dingtalk, ...]
 ```
 
 Each channel runs in its own thread. A failure in one channel does not affect others. Errors are logged to stderr.
